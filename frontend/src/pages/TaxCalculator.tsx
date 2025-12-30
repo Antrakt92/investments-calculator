@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { calculateTax, getDeemedDisposals, type TaxResult } from '../services/api'
 
 export default function TaxCalculator() {
-  const [taxYear, setTaxYear] = useState(new Date().getFullYear())
+  // Default to 2024 (most recent complete tax year)
+  const [taxYear, setTaxYear] = useState(2024)
   const [lossesCarriedForward, setLossesCarriedForward] = useState(0)
   const [result, setResult] = useState<TaxResult | null>(null)
   const [deemedDisposals, setDeemedDisposals] = useState<any[]>([])
@@ -26,9 +27,10 @@ export default function TaxCalculator() {
     }
   }
 
+  // Auto-calculate when year or losses change
   useEffect(() => {
     calculate()
-  }, [])
+  }, [taxYear, lossesCarriedForward])
 
   return (
     <div>
