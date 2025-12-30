@@ -22,7 +22,7 @@ class ParsedTransaction:
     """Represents a parsed transaction from the PDF."""
     isin: str
     name: str
-    transaction_type: str  # Trading Buy, Trading Sell, Dividend, Interest payment, etc.
+    transaction_type: str  # buy, sell
     transaction_date: date
     settlement_date: Optional[date]
     currency: str
@@ -31,7 +31,7 @@ class ParsedTransaction:
     market_value: Decimal
     net_amount: Decimal
     country: Optional[str] = None
-    asset_type: Optional[str] = None  # Equities, Funds, Liquidity
+    asset_type: Optional[str] = None
 
 
 @dataclass
@@ -39,7 +39,7 @@ class ParsedIncome:
     """Represents parsed income event (interest, dividend, distribution)."""
     isin: Optional[str]
     name: str
-    income_type: str  # Interest, Dividend, Distribution
+    income_type: str
     payment_date: date
     quantity: Optional[Decimal]
     gross_amount: Decimal
@@ -61,7 +61,7 @@ class ParsedGainLoss:
     realized_gain_loss: Decimal
     fx_effect: Decimal
     gain_loss_without_fx: Decimal
-    transaction_type: str  # Trading Buy, Trading Sell
+    transaction_type: str
     country: Optional[str] = None
     asset_type: Optional[str] = None
 
@@ -80,7 +80,6 @@ class ParsedReport:
     income_events: list[ParsedIncome] = field(default_factory=list)
     gains_losses: list[ParsedGainLoss] = field(default_factory=list)
 
-    # Summary totals from the report
     total_income: Decimal = Decimal("0")
     total_gains: Decimal = Decimal("0")
     total_losses: Decimal = Decimal("0")
@@ -90,9 +89,6 @@ class TradeRepublicParser:
     """Parser for Trade Republic annual tax report PDFs."""
 
     def __init__(self):
-        self.current_section = None
-        self.current_asset_type = None
-        self.current_country = None
         self.current_isin = None
         self.current_name = None
 
@@ -105,25 +101,22 @@ class TradeRepublicParser:
         report = None
 
         with pdfplumber.open(pdf_path) as pdf:
-            # First pass: extract metadata from page 2
+            # Extract metadata from page 2
             report = self._parse_metadata(pdf.pages[1])
 
-            # Parse each page
-            for page_num, page in enumerate(pdf.pages, 1):
+            # Parse all pages
+            full_text = ""
+            for page in pdf.pages:
+                full_text += (page.extract_text() or "") + "\n"
+
+            # Parse Section V - Income
+            self._parse_income_section(full_text, report)
+
+            # Parse Section VII - Transactions (using table extraction)
+            for page in pdf.pages:
                 text = page.extract_text() or ""
-
-                # Detect section changes
-                self._detect_section(text)
-
-                # Parse based on current section
-                if "V. Detailed Income Section" in text or self.current_section == "income":
-                    self._parse_income_page(page, report)
-
-                if "VI. Detailed Gains and Losses Section" in text or self.current_section == "gains_losses":
-                    self._parse_gains_losses_page(page, report)
-
-                if "VII. History of Transactions" in text or self.current_section == "transactions":
-                    self._parse_transactions_page(page, report)
+                if "VII. History of Transactions" in text or "History of Transactions" in text:
+                    self._parse_transactions_table(page, report)
 
         # Classify assets for Irish tax purposes
         self._classify_assets(report)
@@ -134,11 +127,9 @@ class TradeRepublicParser:
         """Extract report metadata from page 2."""
         text = page.extract_text() or ""
 
-        # Extract client ID
         client_match = re.search(r"Client:\s*(\d+)", text)
         client_id = client_match.group(1) if client_match else "unknown"
 
-        # Extract period
         period_match = re.search(r"Period:\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})", text)
         if period_match:
             period_start = datetime.strptime(period_match.group(1), "%d.%m.%Y").date()
@@ -147,14 +138,12 @@ class TradeRepublicParser:
             period_start = date(2024, 1, 1)
             period_end = date(2024, 12, 31)
 
-        # Extract currency and country
         currency_match = re.search(r"Currency:\s*(\w+)", text)
         currency = currency_match.group(1) if currency_match else "EUR"
 
         country_match = re.search(r"Country:\s*(\w+)", text)
         country = country_match.group(1) if country_match else "Ireland"
 
-        # Accounting method
         method_match = re.search(r"Accounting\s*Method:\s*(\w+)", text)
         accounting_method = method_match.group(1) if method_match else "Fifo"
 
@@ -167,275 +156,164 @@ class TradeRepublicParser:
             accounting_method=accounting_method
         )
 
-    def _detect_section(self, text: str):
-        """Detect which section we're currently in."""
-        if "V. Detailed Income Section" in text:
-            self.current_section = "income"
-        elif "VI. Detailed Gains and Losses Section" in text:
-            self.current_section = "gains_losses"
-        elif "VII. History of Transactions" in text:
-            self.current_section = "transactions"
-        elif "VIII. Explanatory Notes" in text or "Explanatory Notes" in text:
-            self.current_section = "notes"
-
-    def _parse_income_page(self, page, report: ParsedReport):
-        """Parse income section (Section V)."""
-        text = page.extract_text() or ""
-        lines = text.split("\n")
-
-        for i, line in enumerate(lines):
-            # Detect asset type
-            if "Asset Type:" in line:
-                if "Liquidity" in line:
-                    self.current_asset_type = "Liquidity"
-                elif "Funds" in line:
-                    self.current_asset_type = "Funds"
-                continue
-
-            # Detect country
-            if line.startswith("Country:"):
-                self.current_country = line.replace("Country:", "").strip()
-                continue
-
-            # Detect ISIN line (starts with IE, US, DE, LU, etc.)
-            isin_match = re.match(r"^([A-Z]{2}[A-Z0-9]{10})\s*-\s*(.+)$", line.strip())
-            if isin_match:
-                self.current_isin = isin_match.group(1)
-                self.current_name = isin_match.group(2).strip()
-                continue
-
-            # Parse interest payment lines
-            if "Interest payment" in line:
-                income = self._parse_interest_line(line, lines, i)
-                if income:
-                    report.income_events.append(income)
-
-            # Parse dividend lines
-            if line.strip().startswith("Dividend"):
-                income = self._parse_dividend_line(line, lines, i)
-                if income:
-                    report.income_events.append(income)
-
-    def _parse_interest_line(self, line: str, lines: list, idx: int) -> Optional[ParsedIncome]:
-        """Parse an interest payment line."""
-        # Format: Interest payment 01.02.2024 0.21 EUR 1.0000 0.21 0.21
-        pattern = r"Interest payment\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.]+)\s+EUR"
-        match = re.search(pattern, line)
-        if match:
-            payment_date = datetime.strptime(match.group(1), "%d.%m.%Y").date()
-            amount = Decimal(match.group(2))
-
-            return ParsedIncome(
-                isin=None,  # Liquidity doesn't have ISIN
-                name="Trade Republic Interest",
-                income_type="Interest",
-                payment_date=payment_date,
-                quantity=None,
-                gross_amount=amount,
-                withholding_tax=Decimal("0"),
-                net_amount=amount,
-                country=self.current_country or "Germany"
-            )
-        return None
-
-    def _parse_dividend_line(self, line: str, lines: list, idx: int) -> Optional[ParsedIncome]:
-        """Parse a dividend/distribution line."""
-        # Format: Dividend 27.12.2024 6.1484 EUR 1.0000 0.38 0.38
-        pattern = r"Dividend\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.]+)\s+EUR\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"
-        match = re.search(pattern, line)
-        if match:
-            payment_date = datetime.strptime(match.group(1), "%d.%m.%Y").date()
-            quantity = Decimal(match.group(2))
-            gross_amount = Decimal(match.group(4))
-            net_amount = Decimal(match.group(5))
-
-            return ParsedIncome(
-                isin=self.current_isin,
-                name=self.current_name or "Unknown Fund",
-                income_type="Distribution",
-                payment_date=payment_date,
-                quantity=quantity,
-                gross_amount=gross_amount,
-                withholding_tax=Decimal("0"),
-                net_amount=net_amount,
-                country=self.current_country
-            )
-        return None
-
-    def _parse_gains_losses_page(self, page, report: ParsedReport):
-        """Parse gains and losses section (Section VI)."""
-        tables = page.extract_tables()
-
-        for table in tables:
-            if not table or len(table) < 2:
-                continue
-
-            for row in table[1:]:  # Skip header
-                if not row or len(row) < 5:
-                    continue
-
-                parsed = self._parse_gain_loss_row(row)
-                if parsed:
-                    report.gains_losses.append(parsed)
-
-    def _parse_gain_loss_row(self, row: list) -> Optional[ParsedGainLoss]:
-        """Parse a single gain/loss row."""
-        try:
-            # Clean row data
-            row = [str(cell).strip() if cell else "" for cell in row]
-
-            # Skip if not a trading row
-            if not any(t in row[0] for t in ["Trading Buy", "Trading Sell"]):
-                return None
-
-            transaction_type = "buy" if "Buy" in row[0] else "sell"
-
-            # Extract date
-            date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", row[1] if len(row) > 1 else "")
-            if not date_match:
-                return None
-            trans_date = datetime.strptime(date_match.group(1), "%d.%m.%Y").date()
-
-            # Extract quantity
-            quantity = self._parse_decimal(row[2]) if len(row) > 2 else Decimal("0")
-
-            # Extract price
-            unit_price = self._parse_decimal(row[4]) if len(row) > 4 else Decimal("0")
-
-            # Extract amounts
-            gross_amount = self._parse_decimal(row[7]) if len(row) > 7 else Decimal("0")
-            net_amount = self._parse_decimal(row[8]) if len(row) > 8 else Decimal("0")
-
-            # Extract realized gain/loss
-            realized_gl = self._parse_decimal(row[9]) if len(row) > 9 else Decimal("0")
-            fx_effect = self._parse_decimal(row[10]) if len(row) > 10 else Decimal("0")
-            gl_no_fx = self._parse_decimal(row[11]) if len(row) > 11 else Decimal("0")
-
-            return ParsedGainLoss(
-                isin=self.current_isin or "",
-                name=self.current_name or "",
-                transaction_date=trans_date,
-                quantity=abs(quantity),
-                unit_price=unit_price,
-                gross_amount=gross_amount,
-                net_amount=net_amount,
-                realized_gain_loss=realized_gl,
-                fx_effect=fx_effect,
-                gain_loss_without_fx=gl_no_fx,
-                transaction_type=transaction_type,
-                country=self.current_country,
-                asset_type=self.current_asset_type
-            )
-        except (ValueError, InvalidOperation) as e:
-            return None
-
-    def _parse_transactions_page(self, page, report: ParsedReport):
-        """Parse transaction history section (Section VII)."""
-        text = page.extract_text() or ""
-        lines = text.split("\n")
+    def _parse_income_section(self, full_text: str, report: ParsedReport):
+        """Parse income section from full text."""
+        lines = full_text.split("\n")
+        current_isin = None
+        current_name = None
 
         for i, line in enumerate(lines):
             # Detect ISIN lines
             isin_match = re.match(r"^([A-Z]{2}[A-Z0-9]{10})\s*-\s*(.+)$", line.strip())
             if isin_match:
-                self.current_isin = isin_match.group(1)
-                self.current_name = isin_match.group(2).strip()
+                current_isin = isin_match.group(1)
+                current_name = isin_match.group(2).strip()
+                # Clean name - remove trailing (Acc), (Dist), etc. info we don't need
+                if " - " in current_name:
+                    current_name = current_name.split(" - ")[0].strip()
+                continue
+
+            # Parse interest payment lines
+            # Format: Interest payment 01.02.2024 0.21 EUR 1.0000 0.21 0.21
+            if "Interest payment" in line:
+                match = re.search(r"Interest payment\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.]+)", line)
+                if match:
+                    payment_date = datetime.strptime(match.group(1), "%d.%m.%Y").date()
+                    amount = Decimal(match.group(2))
+                    report.income_events.append(ParsedIncome(
+                        isin=None,
+                        name="Trade Republic Interest",
+                        income_type="Interest",
+                        payment_date=payment_date,
+                        quantity=None,
+                        gross_amount=amount,
+                        withholding_tax=Decimal("0"),
+                        net_amount=amount,
+                        country="Germany"
+                    ))
+
+            # Parse dividend lines
+            # Format: Dividend 27.12.2024 6.1484 EUR 1.0000 0.38 0.38
+            if line.strip().startswith("Dividend") and current_isin:
+                match = re.search(r"Dividend\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.]+)\s+\w+\s+[\d.]+\s+([\d.]+)", line)
+                if match:
+                    payment_date = datetime.strptime(match.group(1), "%d.%m.%Y").date()
+                    quantity = Decimal(match.group(2))
+                    gross_amount = Decimal(match.group(3))
+                    report.income_events.append(ParsedIncome(
+                        isin=current_isin,
+                        name=current_name or "Unknown Fund",
+                        income_type="Distribution",
+                        payment_date=payment_date,
+                        quantity=quantity,
+                        gross_amount=gross_amount,
+                        withholding_tax=Decimal("0"),
+                        net_amount=gross_amount,
+                        country="Ireland"
+                    ))
+
+    def _parse_transactions_table(self, page, report: ParsedReport):
+        """Parse transaction history using table extraction."""
+        text = page.extract_text() or ""
+        lines = text.split("\n")
+
+        current_isin = None
+        current_name = None
+
+        for line in lines:
+            line = line.strip()
+
+            # Detect ISIN header lines
+            # Format: IE00BGV5VN51 - AI & Big Data USD (Acc)
+            isin_match = re.match(r"^([A-Z]{2}[A-Z0-9]{10})\s*-\s*(.+)$", line)
+            if isin_match:
+                current_isin = isin_match.group(1)
+                current_name = isin_match.group(2).strip()
                 continue
 
             # Parse transaction lines
-            if line.strip().startswith(("Trading Buy", "Trading Sell")):
-                trans = self._parse_transaction_line(line)
+            # Format: Trading Buy 02.05.2024 06.05.2024 EUR 1.0000 0.0408 4.47 0.00
+            if line.startswith("Trading Buy") or line.startswith("Trading Sell"):
+                trans = self._parse_transaction_row(line, current_isin, current_name)
                 if trans:
                     report.transactions.append(trans)
 
-    def _parse_transaction_line(self, line: str) -> Optional[ParsedTransaction]:
-        """Parse a transaction line from Section VII."""
+    def _parse_transaction_row(self, line: str, isin: str, name: str) -> Optional[ParsedTransaction]:
+        """Parse a single transaction row."""
         try:
-            # Transaction format varies, try to extract key fields
             trans_type = "buy" if "Buy" in line else "sell"
 
-            # Extract dates
+            # Extract all dates (DD.MM.YYYY format)
             dates = re.findall(r"(\d{2}\.\d{2}\.\d{4})", line)
-            if not dates:
+            if len(dates) < 2:
                 return None
 
             trans_date = datetime.strptime(dates[0], "%d.%m.%Y").date()
-            settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date() if len(dates) > 1 else None
+            settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date()
 
-            # Extract numbers after dates
-            # Pattern: date date EUR 1.0000 quantity market_value net_amount
-            numbers = re.findall(r"([-]?\d+\.?\d*)", line)
-            # Filter out year numbers from dates
-            numbers = [n for n in numbers if len(n) <= 10 and n not in ["2023", "2024"]]
+            # Remove the "Trading Buy/Sell" prefix and dates to get the numbers
+            # Line format after dates: EUR 1.0000 quantity market_value net_amount
+            # Example: Trading Buy 02.05.2024 06.05.2024 EUR 1.0000 0.0408 4.47 0.00
 
-            if len(numbers) < 3:
-                return None
+            # Find the position after the second date
+            pattern = r"Trading (?:Buy|Sell)\s+\d{2}\.\d{2}\.\d{4}\s+\d{2}\.\d{2}\.\d{4}\s+(\w+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"
+            match = re.search(pattern, line)
 
-            # Try to identify quantity and amounts
-            exchange_rate = Decimal("1.0000")
-            for n in numbers:
-                if n == "1.0000":
-                    exchange_rate = Decimal(n)
-                    break
+            if match:
+                currency = match.group(1)
+                exchange_rate = Decimal(match.group(2))
+                quantity = Decimal(match.group(3))
+                market_value = Decimal(match.group(4))
+                net_amount = Decimal(match.group(5))
+            else:
+                # Fallback: extract all decimal numbers after the dates
+                # Remove dates from consideration
+                remainder = line
+                for d in dates:
+                    remainder = remainder.replace(d, "")
 
-            # Find quantity (usually has many decimals for fractional shares)
-            quantity = Decimal("0")
-            market_value = Decimal("0")
+                # Find all decimal numbers
+                numbers = re.findall(r"(\d+\.\d+|\d+)", remainder)
+                numbers = [Decimal(n) for n in numbers if n not in ["Buy", "Sell", "Trading"]]
 
-            # Simple heuristic: quantity is usually the first significant number after exchange rate
-            numeric_values = []
-            for n in numbers:
-                try:
-                    val = Decimal(n)
-                    if val != exchange_rate and abs(val) > 0:
-                        numeric_values.append(val)
-                except:
-                    continue
+                if len(numbers) < 3:
+                    return None
 
-            if len(numeric_values) >= 2:
-                quantity = numeric_values[0]
-                market_value = numeric_values[1]
+                # Assume: exchange_rate (usually 1.0000), quantity, market_value, net_amount
+                # Filter out 1.0000 if it appears (exchange rate)
+                if numbers[0] == Decimal("1") or (len(str(numbers[0])) >= 6 and "1.0000" in str(numbers[0])):
+                    numbers = numbers[1:]
+
+                if len(numbers) < 2:
+                    return None
+
+                quantity = numbers[0]
+                market_value = numbers[1]
+                net_amount = numbers[2] if len(numbers) > 2 else Decimal("0")
+                exchange_rate = Decimal("1.0000")
+                currency = "EUR"
 
             return ParsedTransaction(
-                isin=self.current_isin or "",
-                name=self.current_name or "",
+                isin=isin or "",
+                name=name or "",
                 transaction_type=trans_type,
                 transaction_date=trans_date,
                 settlement_date=settle_date,
-                currency="EUR",
+                currency=currency,
                 exchange_rate=exchange_rate,
                 quantity=abs(quantity),
                 market_value=abs(market_value),
-                net_amount=Decimal("0"),
-                country=self.current_country,
-                asset_type=self.current_asset_type
+                net_amount=abs(net_amount),
+                country=None,
+                asset_type=None
             )
-        except Exception:
+
+        except Exception as e:
+            print(f"Error parsing transaction: {line} - {e}")
             return None
 
-    def _parse_decimal(self, value: str) -> Decimal:
-        """Safely parse a decimal value."""
-        if not value:
-            return Decimal("0")
-        # Clean the string
-        cleaned = str(value).strip().replace(",", "")
-        # Remove currency symbols
-        cleaned = re.sub(r"[€$£]", "", cleaned)
-        try:
-            return Decimal(cleaned)
-        except InvalidOperation:
-            return Decimal("0")
-
     def _classify_assets(self, report: ParsedReport):
-        """
-        Classify assets for Irish tax purposes based on ISIN.
-
-        Irish tax classification:
-        - IE, LU, DE (funds) -> Exit Tax 41%
-        - US (stocks) -> CGT 33%
-        - US (ETFs) -> CGT 33% (not Exit Tax as not EU domiciled)
-        - Other stocks -> CGT 33%
-        """
+        """Classify assets for Irish tax purposes."""
         for trans in report.transactions:
             trans.asset_type = self._get_asset_type(trans.isin, trans.name)
 
@@ -450,29 +328,36 @@ class TradeRepublicParser:
         prefix = isin[:2]
         name_lower = name.lower() if name else ""
 
-        # EU domiciled funds (Exit Tax applies)
+        # EU fund countries where Exit Tax applies
         eu_fund_countries = ["IE", "LU", "DE", "FR", "NL", "AT"]
 
-        # Check if it's a fund/ETF based on name keywords
-        fund_keywords = ["etf", "fund", "ucits", "acc", "dist", "index", "tracker",
-                        "ishares", "vanguard", "amundi", "xtrackers", "lyxor",
-                        "3x", "2x", "leveraged", "short", "nasdaq", "s&p"]
+        # Keywords indicating a fund/ETF
+        fund_keywords = [
+            "etf", "fund", "ucits", "acc", "dist", "index", "tracker",
+            "ishares", "vanguard", "amundi", "xtrackers", "lyxor",
+            "3x", "2x", "leveraged", "short", "nasdaq", "s&p",
+            "msci", "ftse", "floating rate", "bond usd", "big data",
+            "money market", "dividend eur"
+        ]
 
         is_fund = any(kw in name_lower for kw in fund_keywords)
+
+        # Special case: Jazz Pharmaceuticals is a STOCK (IE00B4Q5ZN47), not a fund
+        if "jazz" in name_lower or "pharmaceuticals" in name_lower:
+            return "stock"
 
         if is_fund and prefix in eu_fund_countries:
             return "etf_eu"  # Exit Tax 41%
         elif is_fund and prefix == "US":
             return "etf_non_eu"  # CGT 33%
-        elif prefix in ["US", "KY", "CA"]:  # Cayman Islands ADRs etc.
+        elif prefix in ["US", "KY"]:  # US stocks, Cayman Islands ADRs
             return "stock"  # CGT 33%
         elif prefix in eu_fund_countries:
-            # Could be stock or fund - check name
             if is_fund:
                 return "etf_eu"
             return "stock"
         else:
-            return "stock"  # Default to stock (CGT)
+            return "stock"
 
 
 def parse_trade_republic_pdf(pdf_path: str | Path) -> ParsedReport:
