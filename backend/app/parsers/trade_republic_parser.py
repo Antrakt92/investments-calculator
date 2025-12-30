@@ -251,47 +251,61 @@ class TradeRepublicParser:
             trans_date = datetime.strptime(dates[0], "%d.%m.%Y").date()
             settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date()
 
-            # Remove the "Trading Buy/Sell" prefix and dates to get the numbers
-            # Line format after dates: EUR 1.0000 quantity market_value net_amount
-            # Example: Trading Buy 02.05.2024 06.05.2024 EUR 1.0000 0.0408 4.47 0.00
+            # Remove dates and transaction type from the line to get clean numbers
+            # Format: Trading Buy 02.05.2024 06.05.2024 EUR 1.0000 0.0408 4.47 0.00
+            # Or with commas: Trading Sell 23.05.2024 27.05.2024 EUR 1.0000 -5.00 2,146.00 0.00
 
-            # Find the position after the second date
-            pattern = r"Trading (?:Buy|Sell)\s+\d{2}\.\d{2}\.\d{4}\s+\d{2}\.\d{2}\.\d{4}\s+(\w+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"
-            match = re.search(pattern, line)
+            # Normalize numbers: remove thousand separators (comma or space between digits)
+            # Handle: 2,146.00 -> 2146.00, 2 146.00 -> 2146.00, 2, 146.00 -> 2146.00
+            normalized_line = line
+            # Remove commas between digits (thousand separator)
+            normalized_line = re.sub(r'(\d),\s*(\d)', r'\1\2', normalized_line)
+            # Remove spaces between digits (thousand separator in some locales)
+            normalized_line = re.sub(r'(\d)\s+(\d{3})(?!\d)', r'\1\2', normalized_line)
+
+            # Pattern to match: EUR exchange_rate quantity market_value net_amount
+            # Quantity can be negative for sells
+            pattern = r"EUR\s+([\d.]+)\s+([-]?[\d.]+)\s+([\d.]+)\s+([\d.]+)"
+            match = re.search(pattern, normalized_line)
 
             if match:
-                currency = match.group(1)
-                exchange_rate = Decimal(match.group(2))
-                quantity = Decimal(match.group(3))
-                market_value = Decimal(match.group(4))
-                net_amount = Decimal(match.group(5))
+                exchange_rate = Decimal(match.group(1))
+                quantity = Decimal(match.group(2))
+                market_value = Decimal(match.group(3))
+                net_amount = Decimal(match.group(4))
+                currency = "EUR"
             else:
-                # Fallback: extract all decimal numbers after the dates
-                # Remove dates from consideration
-                remainder = line
+                # Fallback: try to extract numbers after removing known parts
+                # Apply normalization again to be safe
+                remainder = re.sub(r'(\d),\s*(\d)', r'\1\2', line)
+                remainder = re.sub(r'(\d)\s+(\d{3})(?!\d)', r'\1\2', remainder)
+                remainder = re.sub(r"Trading (Buy|Sell)", "", remainder)
                 for d in dates:
                     remainder = remainder.replace(d, "")
+                remainder = remainder.replace("EUR", "")
 
-                # Find all decimal numbers
-                numbers = re.findall(r"(\d+\.\d+|\d+)", remainder)
-                numbers = [Decimal(n) for n in numbers if n not in ["Buy", "Sell", "Trading"]]
+                # Find all numbers (including negative)
+                numbers = re.findall(r"([-]?\d+\.?\d*)", remainder)
+                numbers = [n for n in numbers if n and n != "-"]
 
                 if len(numbers) < 3:
                     return None
 
-                # Assume: exchange_rate (usually 1.0000), quantity, market_value, net_amount
-                # Filter out 1.0000 if it appears (exchange rate)
-                if numbers[0] == Decimal("1") or (len(str(numbers[0])) >= 6 and "1.0000" in str(numbers[0])):
-                    numbers = numbers[1:]
+                try:
+                    # First number is usually exchange rate (1.0000)
+                    idx = 0
+                    if Decimal(numbers[0]) == Decimal("1") or "1.0000" in numbers[0]:
+                        exchange_rate = Decimal(numbers[0])
+                        idx = 1
+                    else:
+                        exchange_rate = Decimal("1.0000")
 
-                if len(numbers) < 2:
+                    quantity = Decimal(numbers[idx])
+                    market_value = Decimal(numbers[idx + 1])
+                    net_amount = Decimal(numbers[idx + 2]) if len(numbers) > idx + 2 else Decimal("0")
+                    currency = "EUR"
+                except (IndexError, InvalidOperation):
                     return None
-
-                quantity = numbers[0]
-                market_value = numbers[1]
-                net_amount = numbers[2] if len(numbers) > 2 else Decimal("0")
-                exchange_rate = Decimal("1.0000")
-                currency = "EUR"
 
             return ParsedTransaction(
                 isin=isin or "",
