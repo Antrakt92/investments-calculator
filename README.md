@@ -106,9 +106,23 @@ npm install
 # Run development server
 npm run dev
 ```
+```
+# В терминале с бэкендом нажмите Ctrl+C чтобы остановить сервер
+
+# Обновите код
+cd C:\Users\dimon\Documents\GitHub\investments-calculator
+git pull
+
+# Удалите старую базу данных (чтобы начать заново)
+Remove-Item -Force data\irish_tax.db -ErrorAction SilentlyContinue
+
+# Перезапустите бэкенд
+cd backend
+venv\Scripts\activate
+python -m uvicorn app.main:app --reload --port 8000
 
 The frontend will be available at http://localhost:3000 and will proxy API requests to the backend.
-
+```
 ## API Endpoints
 
 ### Upload
@@ -159,3 +173,4 @@ The calculator provides mappings to Form 11 fields:
 ## Disclaimer
 
 This tool is for informational purposes only. Always consult a tax professional for your specific situation. The calculations may not account for all tax rules and exemptions.
+
