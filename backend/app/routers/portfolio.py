@@ -86,8 +86,42 @@ async def get_transactions(
         Transaction.transaction_date.desc()
     ).offset(offset).limit(limit).all()
 
-    return [
-        {
+    # Calculate gain/loss for each transaction
+    # Need to track cost basis per asset using simple average method
+    result = []
+    for t in transactions:
+        realized_gl = None
+
+        if t.transaction_type == TransactionType.SELL:
+            # Calculate gain/loss: get all buys before this sell for the same asset
+            all_trans = db.query(Transaction).filter(
+                Transaction.asset_id == t.asset_id,
+                Transaction.transaction_date <= t.transaction_date
+            ).order_by(Transaction.transaction_date).all()
+
+            total_qty = Decimal("0")
+            total_cost = Decimal("0")
+
+            for tr in all_trans:
+                if tr.id == t.id:
+                    # This is the current sell - calculate gain/loss
+                    if total_qty > 0:
+                        avg_cost = total_cost / total_qty
+                        qty_sold = abs(t.quantity)
+                        cost_basis = avg_cost * qty_sold
+                        realized_gl = float(t.gross_amount - cost_basis)
+                    break
+                elif tr.transaction_type == TransactionType.BUY:
+                    total_qty += abs(tr.quantity)
+                    total_cost += tr.gross_amount
+                elif tr.transaction_type == TransactionType.SELL:
+                    if total_qty > 0:
+                        avg_cost = total_cost / total_qty
+                        qty_sold = abs(tr.quantity)
+                        total_qty -= qty_sold
+                        total_cost -= avg_cost * qty_sold
+
+        result.append({
             "id": t.id,
             "isin": t.asset.isin,
             "name": t.asset.name,
@@ -98,10 +132,10 @@ async def get_transactions(
             "gross_amount": float(t.gross_amount),
             "fees": float(t.fees),
             "net_amount": float(t.net_amount),
-            "realized_gain_loss": float(t.realized_gain_loss) if t.realized_gain_loss else None
-        }
-        for t in transactions
-    ]
+            "realized_gain_loss": realized_gl
+        })
+
+    return result
 
 
 @router.get("/summary")

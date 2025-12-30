@@ -39,6 +39,9 @@ async def calculate_tax(
     exit_calc = ExitTaxCalculator()
     dirt_calc = DIRTCalculator()
 
+    # Collect exit tax disposals
+    all_exit_disposals = []
+
     # Get all transactions for the year and prior (for cost basis)
     transactions = db.query(Transaction).join(Asset).filter(
         Transaction.transaction_date <= date(tax_year, 12, 31)
@@ -76,12 +79,14 @@ async def calculate_tax(
             unit_price = trans.gross_amount / qty if qty > 0 else Decimal("0")
 
             if is_exit_tax:
-                exit_calc.process_disposal(
+                # Collect the disposals for Exit Tax calculation
+                disposals = exit_calc.process_disposal(
                     isin=asset.isin,
                     disposal_date=trans.transaction_date,
                     quantity=qty,
                     unit_price=unit_price
                 )
+                all_exit_disposals.extend(disposals)
             else:
                 disposal = Disposal(
                     date=trans.transaction_date,
@@ -111,9 +116,8 @@ async def calculate_tax(
     # Calculate taxes
     cgt_result = cgt_calc.calculate_tax(tax_year, losses_brought_forward=losses_carried_forward)
 
-    # Get Exit Tax disposals that occurred in the tax year
-    exit_disposals = []
-    exit_result = exit_calc.calculate_tax(tax_year, exit_disposals)
+    # Calculate Exit Tax using collected disposals
+    exit_result = exit_calc.calculate_tax(tax_year, all_exit_disposals)
 
     dirt_result = dirt_calc.calculate_tax(tax_year)
 
