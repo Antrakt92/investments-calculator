@@ -403,16 +403,19 @@ async def update_transaction(
         transaction.quantity = quantity
 
     if data.unit_price is not None:
-        unit_price = Decimal(str(data.unit_price))
-        transaction.unit_price = unit_price
-        # Recalculate amounts
+        transaction.unit_price = Decimal(str(data.unit_price))
+
+    # Always recalculate amounts if quantity or price changed
+    if data.quantity is not None or data.unit_price is not None:
         quantity = abs(transaction.quantity)
-        transaction.gross_amount = quantity * unit_price
+        transaction.gross_amount = quantity * transaction.unit_price
         transaction.amount_eur = transaction.gross_amount
 
     if data.fees is not None:
         transaction.fees = Decimal(str(data.fees))
-        # Recalculate net amount
+
+    # Always recalculate net amount if any amount field changed
+    if data.quantity is not None or data.unit_price is not None or data.fees is not None:
         if transaction.transaction_type == TransactionType.BUY:
             transaction.net_amount = transaction.gross_amount - transaction.fees
         else:

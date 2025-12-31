@@ -11,12 +11,13 @@ export default function TaxCalculator() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function calculate() {
+  async function calculate(losses?: number) {
     try {
       setLoading(true)
       setError(null)
+      const lossesToUse = losses !== undefined ? losses : lossesCarriedForward
       const [taxResult, disposals] = await Promise.all([
-        calculateTax(taxYear, lossesCarriedForward),
+        calculateTax(taxYear, lossesToUse),
         getDeemedDisposals(3),
       ])
       setResult(taxResult)
@@ -28,32 +29,40 @@ export default function TaxCalculator() {
     }
   }
 
-  // Fetch losses from previous year when year changes
+  // Fetch losses from previous year and calculate when year changes
   useEffect(() => {
-    async function fetchPreviousYearLosses() {
+    async function fetchAndCalculate() {
+      let losses = 0
+      // First, fetch losses from previous year
       try {
         const previousYear = taxYear - 1
         const lossData = await getLossesCarryForward(previousYear)
         if (lossData.losses_to_carry_forward > 0) {
-          setLossesCarriedForward(lossData.losses_to_carry_forward)
+          losses = lossData.losses_to_carry_forward
+          setLossesCarriedForward(losses)
           setLossesAutoLoaded(true)
         } else {
           setLossesCarriedForward(0)
           setLossesAutoLoaded(false)
         }
       } catch {
-        // If fetching fails, just reset to 0
         setLossesCarriedForward(0)
         setLossesAutoLoaded(false)
       }
+      // Calculate with the fetched losses value directly
+      calculate(losses)
     }
-    fetchPreviousYearLosses()
+    fetchAndCalculate()
   }, [taxYear])
 
-  // Auto-calculate when losses change (year change triggers loss fetch which triggers this)
+  // Recalculate when user manually changes losses
+  const [manualLossChange, setManualLossChange] = useState(false)
   useEffect(() => {
-    calculate()
-  }, [lossesCarriedForward])
+    if (manualLossChange) {
+      calculate()
+      setManualLossChange(false)
+    }
+  }, [manualLossChange])
 
   // Calculate Exit Tax net
   const exitNetGain = result ? result.exit_tax.gains - result.exit_tax.losses : 0
@@ -93,11 +102,12 @@ export default function TaxCalculator() {
               onChange={e => {
                 setLossesCarriedForward(Number(e.target.value))
                 setLossesAutoLoaded(false)
+                setManualLossChange(true)
               }}
               style={{ width: '150px' }}
             />
           </div>
-          <button className="btn btn-primary" onClick={calculate} disabled={loading}>
+          <button className="btn btn-primary" onClick={() => calculate()} disabled={loading}>
             {loading ? 'Calculating...' : 'Recalculate'}
           </button>
           {result && (
