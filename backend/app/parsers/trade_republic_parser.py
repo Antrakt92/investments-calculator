@@ -229,35 +229,54 @@ class TradeRepublicParser:
 
             # Parse interest payment lines
             # Format: Interest payment 01.02.2024 0.21 EUR 1.0000 0.21 0.21
-            # Format: Interest 01.02.2024 0.21 EUR
+            # For interest, the amounts at the end are the actual interest amounts
             if "Interest" in line_stripped and ("payment" in line_stripped.lower() or re.search(r"\d{2}\.\d{2}\.\d{4}", line_stripped)):
-                match = re.search(r"Interest(?:\s+payment)?\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)", line_stripped)
-                if match:
+                date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", line_stripped)
+                if date_match:
                     try:
-                        payment_date = datetime.strptime(match.group(1), "%d.%m.%Y").date()
-                        # Handle comma as decimal separator
-                        amount_str = match.group(2).replace(",", ".")
-                        amount = Decimal(amount_str)
-                        if amount > Decimal("0"):
+                        payment_date = datetime.strptime(date_match.group(1), "%d.%m.%Y").date()
+
+                        # Get the full context - current line plus next line if needed
+                        context = line_stripped
+                        if i + 1 < len(lines):
+                            next_line = lines[i + 1].strip()
+                            if next_line.startswith("EUR") or re.match(r"^[\d.,\s]+$", next_line):
+                                context += " " + next_line
+
+                        # Extract all numbers from context
+                        after_date = context[date_match.end():]
+                        numbers = re.findall(r"(\d+[.,]\d+)", after_date)
+                        amounts = [Decimal(n.replace(",", ".")) for n in numbers if n]
+
+                        # For interest: format is usually amount EUR rate gross net
+                        # The gross/net amounts are at the end and are usually equal
+                        if len(amounts) >= 2 and amounts[-1] == amounts[-2]:
+                            gross_amount = amounts[-1]
+                        elif amounts:
+                            # Take the smallest reasonable amount (likely the actual interest)
+                            gross_amount = min(a for a in amounts if a < Decimal("1000"))
+                        else:
+                            continue
+
+                        if gross_amount > Decimal("0"):
                             report.income_events.append(ParsedIncome(
                                 isin=None,
                                 name="Trade Republic Interest",
                                 income_type="interest",
                                 payment_date=payment_date,
                                 quantity=None,
-                                gross_amount=amount,
+                                gross_amount=gross_amount,
                                 withholding_tax=Decimal("0"),
-                                net_amount=amount,
+                                net_amount=gross_amount,
                                 country="Germany"
                             ))
                     except Exception as e:
                         print(f"Error parsing interest line: {line} - {e}")
 
             # Parse dividend/distribution lines - multiple formats supported
-            # Format 1: Dividend 27.12.2024 6.1484 EUR 1.0000 0.38 0.38
-            # Format 2: Dividend 27.12.2024 0.38 EUR
-            # Format 3: Distribution 27.12.2024 ...
-            # Format 4: Ausschüttung (German for distribution)
+            # Format: Dividend 27.12.2024 6.1484 EUR 1.0000 0.38 0.38
+            # Numbers are: quantity, exchange_rate, gross_amount, net_amount
+            # The gross/net amounts are at the END (usually equal)
             is_dividend_line = (
                 line_stripped.startswith("Dividend") or
                 line_stripped.startswith("Distribution") or
@@ -267,53 +286,71 @@ class TradeRepublicParser:
             )
 
             if is_dividend_line:
-                # Try to extract date and amounts
                 date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", line)
                 if date_match:
                     try:
                         payment_date = datetime.strptime(date_match.group(1), "%d.%m.%Y").date()
 
-                        # Try the original precise pattern first
-                        # Format: Dividend DD.MM.YYYY quantity currency rate gross_amount net_amount
-                        match = re.search(r"(Dividend|Distribution|Ausschüttung)\s+\d{2}\.\d{2}\.\d{4}\s+([\d.,]+)\s+\w{3}\s+[\d.,]+\s+([\d.,]+)", line)
-                        if match:
-                            quantity = Decimal(match.group(2).replace(",", "."))
-                            gross_amount = Decimal(match.group(3).replace(",", "."))
-                        else:
-                            # Fallback: extract all numbers after the date
-                            after_date = line[date_match.end():]
-                            # Handle comma as decimal separator and find numbers
-                            numbers = re.findall(r"([\d]+[.,][\d]+|[\d]+)", after_date)
+                        # Get the full context - combine current line with next lines if needed
+                        # PDF extraction may split the data across lines
+                        context = line_stripped
+                        for j in range(1, 3):  # Check up to 2 lines ahead
+                            if i + j < len(lines):
+                                next_line = lines[i + j].strip()
+                                # Include lines that look like continuation (EUR prefix, or just numbers)
+                                if next_line.startswith("EUR") or re.match(r"^[\d.,\s]+$", next_line):
+                                    context += " " + next_line
+                                elif next_line.startswith(("Dividend", "Distribution", "Interest", "Total")):
+                                    break  # Next entry started
 
-                            amounts = []
-                            for n in numbers:
-                                try:
-                                    val = Decimal(n.replace(",", "."))
-                                    if val > Decimal("0") and val < Decimal("100000"):
-                                        amounts.append(val)
-                                except:
-                                    pass
+                        # Extract all decimal numbers from context after the date
+                        after_date = context[date_match.end():]
+                        numbers = re.findall(r"(\d+[.,]\d+)", after_date)
+                        amounts = []
+                        for n in numbers:
+                            try:
+                                val = Decimal(n.replace(",", "."))
+                                if val > Decimal("0"):
+                                    amounts.append(val)
+                            except:
+                                pass
 
-                            if not amounts:
-                                continue
+                        if not amounts:
+                            continue
 
-                            # Typically format is: quantity currency rate gross_amount net_amount
-                            # Get gross amount (usually second-to-last or last significant amount)
-                            if len(amounts) >= 2:
-                                # If last two are the same, that's gross and net
-                                if amounts[-1] == amounts[-2]:
-                                    gross_amount = amounts[-1]
-                                else:
-                                    # Otherwise take the larger of the last two (gross is before net)
-                                    gross_amount = max(amounts[-2], amounts[-1])
+                        # Parse the dividend format: quantity rate gross net
+                        # The LAST two numbers are gross and net (usually equal)
+                        # The FIRST number is typically the quantity (shares held)
+                        # Exchange rate is usually ~1.0
+
+                        gross_amount = None
+                        quantity = None
+
+                        if len(amounts) >= 4:
+                            # Full format: quantity, rate, gross, net
+                            quantity = amounts[0]
+                            gross_amount = amounts[-2]  # Second to last is gross
+                        elif len(amounts) >= 2:
+                            # If last two are equal, that's gross and net
+                            if amounts[-1] == amounts[-2]:
+                                gross_amount = amounts[-1]
                                 quantity = amounts[0] if len(amounts) > 2 else None
                             else:
+                                # Take the smaller of the last two as the likely dividend amount
+                                # (quantities are usually larger than dividend amounts)
+                                gross_amount = min(amounts[-1], amounts[-2])
+                        else:
+                            # Only one number - might be just the amount on a simple format
+                            # But be careful: if it's a large number, it's probably quantity
+                            if amounts[0] < Decimal("100"):  # Dividend amounts are usually small
                                 gross_amount = amounts[0]
-                                quantity = None
+                            else:
+                                # This is likely quantity, skip - incomplete data
+                                print(f"Skipping dividend line with incomplete data: {line}")
+                                continue
 
-                        if gross_amount > Decimal("0"):
+                        if gross_amount and gross_amount > Decimal("0"):
                             income_type = "dividend" if "Dividend" in line else "distribution"
-                            # Use the current ISIN/name or try to find it from context
                             isin_to_use = current_isin
                             name_to_use = current_name or "Unknown Fund"
 
@@ -321,21 +358,15 @@ class TradeRepublicParser:
                             country = "Unknown"
                             if isin_to_use:
                                 prefix = isin_to_use[:2]
-                                if prefix == "IE":
-                                    country = "Ireland"
-                                elif prefix == "LU":
-                                    country = "Luxembourg"
-                                elif prefix == "DE":
-                                    country = "Germany"
-                                elif prefix == "US":
-                                    country = "USA"
+                                country_map = {"IE": "Ireland", "LU": "Luxembourg", "DE": "Germany", "US": "USA"}
+                                country = country_map.get(prefix, "Unknown")
 
                             report.income_events.append(ParsedIncome(
                                 isin=isin_to_use,
                                 name=name_to_use,
                                 income_type=income_type,
                                 payment_date=payment_date,
-                                quantity=Decimal(str(quantity)) if quantity else None,
+                                quantity=quantity,
                                 gross_amount=gross_amount,
                                 withholding_tax=Decimal("0"),
                                 net_amount=gross_amount,
