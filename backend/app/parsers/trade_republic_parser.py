@@ -419,32 +419,38 @@ class TradeRepublicParser:
                     print(f"Skipping transaction with zero market value: {line}")
 
     def _parse_transaction_row(self, line: str, isin: str, name: str) -> Optional[ParsedTransaction]:
-        """Parse a single transaction row."""
+        """Parse a single transaction row from Section VII (History of Transactions).
+
+        IMPORTANT: Section VII has TWO dates (transaction + settlement), while
+        Section VI (Gains/Losses) has only ONE date. We MUST require two dates
+        to avoid parsing Section VI data which has a completely different format.
+        """
         try:
             # Determine transaction type - handle German variants too
             trans_type = "buy" if any(kw in line for kw in ["Buy", "Kauf"]) else "sell"
 
             # Extract all dates (DD.MM.YYYY format)
             dates = re.findall(r"(\d{2}\.\d{2}\.\d{4})", line)
-            if len(dates) < 1:
+
+            # CRITICAL: Section VII MUST have exactly 2 dates (transaction date + settlement date)
+            # Section VI only has 1 date - we skip those to avoid parsing wrong data
+            if len(dates) < 2:
+                # This is likely Section VI format - skip it
                 return None
 
             trans_date = datetime.strptime(dates[0], "%d.%m.%Y").date()
-            settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date() if len(dates) >= 2 else trans_date
+            settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date()
 
             # Normalize the line for number extraction
-            # Step 1: Remove thousand separators
-            # Handle: 2,146.00 -> 2146.00, 2 146.00 -> 2146.00
+            # Handle thousand separators: 2,146.00 -> 2146.00
             normalized_line = line
-            normalized_line = re.sub(r'(\d),(\d{3})(?![0-9])', r'\1\2', normalized_line)  # 2,146.00 -> 2146.00
+            normalized_line = re.sub(r'(\d),(\d{3})(?![0-9])', r'\1\2', normalized_line)
             normalized_line = re.sub(r'(\d)\s+(\d{3})(?!\d)', r'\1\2', normalized_line)
 
-            # Try multiple patterns to extract the values
-
-            # Pattern 1: Trading Buy/Sell DATE DATE EUR rate quantity value net
+            # Section VII format: Trading Buy/Sell DATE1 DATE2 EUR rate quantity market_value net_amount
             # Example: Trading Buy 02.05.2024 06.05.2024 EUR 1.0000 0.0408 4.47 0.00
-            pattern1 = r"(?:Trading\s+)?(?:Buy|Sell|Kauf|Verkauf)\s+\d{2}\.\d{2}\.\d{4}\s+\d{2}\.\d{2}\.\d{4}\s+(\w{3})\s+([\d.]+)\s+([-]?[\d.]+)\s+([\d.]+)\s+([\d.]+)"
-            match = re.search(pattern1, normalized_line, re.IGNORECASE)
+            pattern = r"(?:Trading\s+)?(?:Buy|Sell|Kauf|Verkauf)\s+\d{2}\.\d{2}\.\d{4}\s+\d{2}\.\d{2}\.\d{4}\s+(\w{3})\s+([\d.]+)\s+([-]?[\d.]+)\s+([\d.]+)\s+([\d.]+)"
+            match = re.search(pattern, normalized_line, re.IGNORECASE)
 
             if match:
                 currency = match.group(1)
@@ -453,59 +459,37 @@ class TradeRepublicParser:
                 market_value = Decimal(match.group(4))
                 net_amount = Decimal(match.group(5))
             else:
-                # Pattern 2: Just find EUR followed by numbers
-                # EUR exchange_rate quantity market_value net_amount
-                pattern2 = r"(\w{3})\s+([\d.]+)\s+([-]?[\d.]+)\s+([\d.]+)\s*([\d.]+)?"
-                match2 = re.search(pattern2, normalized_line)
+                # Fallback for Section VII: extract numbers after the second date
+                # Format should be: ... DATE1 DATE2 EUR rate quantity value net
+                second_date_pos = line.find(dates[1]) + len(dates[1])
+                remainder = line[second_date_pos:]
 
-                if match2 and match2.group(1) in ["EUR", "USD", "GBP"]:
-                    currency = match2.group(1)
-                    exchange_rate = Decimal(match2.group(2))
-                    quantity = Decimal(match2.group(3))
-                    market_value = Decimal(match2.group(4))
-                    net_amount = Decimal(match2.group(5)) if match2.group(5) else market_value
-                else:
-                    # Fallback: extract all numbers from the line
-                    remainder = normalized_line
-                    remainder = re.sub(r"(?:Trading\s+)?(?:Buy|Sell|Kauf|Verkauf)", "", remainder, flags=re.IGNORECASE)
-                    for d in dates:
-                        remainder = remainder.replace(d, "")
-                    remainder = re.sub(r"(EUR|USD|GBP)", "", remainder)
+                # Remove currency codes
+                remainder = re.sub(r"(EUR|USD|GBP)", "", remainder)
 
-                    # Find all numbers (including negative, decimals)
-                    numbers = re.findall(r"([-]?\d+\.?\d*)", remainder)
-                    numbers = [n for n in numbers if n and n != "-" and n != "."]
+                # Find all numbers
+                numbers = re.findall(r"([-]?\d+\.?\d*)", remainder)
+                numbers = [n for n in numbers if n and n != "-" and n != "." and len(n) > 0]
 
-                    if len(numbers) < 2:
-                        print(f"Could not parse transaction - not enough numbers: {line}")
-                        return None
+                if len(numbers) < 3:
+                    print(f"Could not parse Section VII transaction - not enough numbers: {line}")
+                    return None
 
-                    try:
-                        currency = "EUR"
-                        idx = 0
+                try:
+                    currency = "EUR"
+                    # Numbers should be: exchange_rate, quantity, market_value, net_amount
+                    exchange_rate = Decimal(numbers[0])
+                    quantity = abs(Decimal(numbers[1]))
+                    market_value = abs(Decimal(numbers[2]))
+                    net_amount = abs(Decimal(numbers[3])) if len(numbers) > 3 else market_value
+                except (IndexError, InvalidOperation) as e:
+                    print(f"Error parsing numbers from transaction: {line} - {e}")
+                    return None
 
-                        # Check if first number looks like exchange rate (around 1.0)
-                        first_val = Decimal(numbers[0])
-                        if Decimal("0.5") <= first_val <= Decimal("2.0") and "." in numbers[0]:
-                            exchange_rate = first_val
-                            idx = 1
-                        else:
-                            exchange_rate = Decimal("1.0000")
-
-                        quantity = abs(Decimal(numbers[idx]))
-                        market_value = abs(Decimal(numbers[idx + 1])) if len(numbers) > idx + 1 else Decimal("0")
-                        net_amount = abs(Decimal(numbers[idx + 2])) if len(numbers) > idx + 2 else market_value
-
-                    except (IndexError, InvalidOperation) as e:
-                        print(f"Error extracting numbers from transaction: {line} - {e}")
-                        return None
-
-            # Validation: if market_value is 0 but we have quantity, something went wrong
-            if market_value == Decimal("0") and quantity > Decimal("0"):
-                print(f"Warning: Transaction has zero market value with non-zero quantity: {line}")
-                # Try to salvage by using net_amount as market_value
-                if net_amount > Decimal("0"):
-                    market_value = net_amount
+            # Validate: market_value should be reasonable (not 0, not exchange rate)
+            if market_value <= Decimal("0"):
+                print(f"Skipping transaction with zero/negative market value: {line}")
+                return None
 
             return ParsedTransaction(
                 isin=isin or "",
