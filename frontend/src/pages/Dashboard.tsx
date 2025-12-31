@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, type Holding, type TaxResult, type IncomeEvent } from '../services/api'
+import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, getDeemedDisposals, type Holding, type TaxResult, type IncomeEvent } from '../services/api'
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<{
@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [incomeEvents, setIncomeEvents] = useState<IncomeEvent[]>([])
   const [taxResult, setTaxResult] = useState<TaxResult | null>(null)
+  const [deemedDisposals, setDeemedDisposals] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,14 +24,16 @@ export default function Dashboard() {
   async function loadData() {
     try {
       setLoading(true)
-      const [summaryData, holdingsData, incomeData] = await Promise.all([
+      const [summaryData, holdingsData, incomeData, disposals] = await Promise.all([
         getPortfolioSummary(),
         getHoldings(),
         getIncomeEvents({ limit: 100 }),
+        getDeemedDisposals(2), // Get disposals within next 2 years
       ])
       setSummary(summaryData)
       setHoldings(holdingsData)
       setIncomeEvents(incomeData)
+      setDeemedDisposals(disposals)
 
       // Calculate tax for 2024
       try {
@@ -211,6 +214,59 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* Deemed Disposal Warning */}
+          {deemedDisposals.length > 0 && (
+            <div className="card" style={{ marginTop: '24px', borderLeft: '4px solid var(--warning)' }}>
+              <h2 className="card-title">
+                <span style={{ marginRight: '8px' }}>⏰</span>
+                Upcoming Deemed Disposals (8-Year Rule)
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
+                EU funds held for 8 years trigger Exit Tax (41%) even without selling.
+              </p>
+              {deemedDisposals.slice(0, 3).map((d, i) => {
+                const daysUntil = getDaysUntil(d.deemed_disposal_date)
+                const isUrgent = daysUntil <= 365
+                return (
+                  <div key={i} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px',
+                    background: isUrgent ? 'rgba(var(--warning-rgb), 0.1)' : 'var(--bg-secondary)',
+                    borderRadius: '6px',
+                    marginBottom: i < deemedDisposals.length - 1 ? '8px' : 0
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{d.name}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {d.isin} · {d.quantity.toFixed(4)} units
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{
+                        fontWeight: 500,
+                        color: isUrgent ? 'var(--warning)' : 'var(--text-primary)'
+                      }}>
+                        {formatTimeRemaining(daysUntil)}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {formatDate(d.deemed_disposal_date)}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {deemedDisposals.length > 3 && (
+                <div style={{ marginTop: '12px', textAlign: 'center' }}>
+                  <a href="/tax" style={{ color: 'var(--primary)', fontSize: '14px' }}>
+                    View all {deemedDisposals.length} upcoming disposals →
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Assets by Tax Type */}
           {summary && Object.keys(summary.assets_by_type).length > 0 && (
             <div className="card" style={{ marginTop: '24px' }}>
@@ -291,5 +347,37 @@ function getTaxTreatment(type: string): string {
       return 'DIRT 33%'
     default:
       return 'CGT 33%'
+  }
+}
+
+function getDaysUntil(dateStr: string): number {
+  const target = new Date(dateStr)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  target.setHours(0, 0, 0, 0)
+  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function formatTimeRemaining(days: number): string {
+  if (days < 0) {
+    return 'OVERDUE'
+  } else if (days === 0) {
+    return 'Today!'
+  } else if (days === 1) {
+    return '1 day'
+  } else if (days < 30) {
+    return `${days} days`
+  } else if (days < 365) {
+    const months = Math.floor(days / 30)
+    return months === 1 ? '1 month' : `${months} months`
+  } else {
+    const years = Math.floor(days / 365)
+    const remainingMonths = Math.floor((days % 365) / 30)
+    if (remainingMonths === 0) {
+      return years === 1 ? '1 year' : `${years} years`
+    }
+    return years === 1
+      ? `1 year ${remainingMonths}m`
+      : `${years} years ${remainingMonths}m`
   }
 }

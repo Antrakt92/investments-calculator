@@ -527,7 +527,7 @@ export default function TaxCalculator() {
               <h2 className="card-title">⏰ Upcoming Deemed Disposals (8-Year Rule)</h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
                 EU funds held for 8 years trigger a "deemed disposal" - you pay Exit Tax as if you sold, even if you didn't.
-                Plan ahead to have funds available.
+                Plan ahead to have funds available for the tax payment.
               </p>
               <table className="table">
                 <thead>
@@ -535,27 +535,51 @@ export default function TaxCalculator() {
                     <th>Fund</th>
                     <th>Acquired</th>
                     <th>Deemed Disposal</th>
+                    <th>Time Left</th>
                     <th>Quantity</th>
                     <th>Cost Basis</th>
+                    <th>Est. Tax (41%)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {deemedDisposals.map((d, i) => (
-                    <tr key={i}>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{d.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{d.isin}</div>
-                      </td>
-                      <td>{formatDate(d.acquisition_date)}</td>
-                      <td style={{ fontWeight: 500, color: 'var(--warning)' }}>
-                        {formatDate(d.deemed_disposal_date)}
-                      </td>
-                      <td>{d.quantity.toFixed(4)}</td>
-                      <td>{formatCurrency(d.cost_basis)}</td>
-                    </tr>
-                  ))}
+                  {deemedDisposals.map((d, i) => {
+                    const daysUntil = getDaysUntil(d.deemed_disposal_date)
+                    const urgencyStyle = getUrgencyStyle(daysUntil)
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <div style={{ fontWeight: 500 }}>{d.name}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{d.isin}</div>
+                        </td>
+                        <td>{formatDate(d.acquisition_date)}</td>
+                        <td style={{ fontWeight: 500, ...urgencyStyle }}>
+                          {formatDate(d.deemed_disposal_date)}
+                        </td>
+                        <td style={urgencyStyle}>
+                          {formatTimeRemaining(daysUntil)}
+                        </td>
+                        <td>{d.quantity.toFixed(4)}</td>
+                        <td>{formatCurrency(d.cost_basis)}</td>
+                        <td>
+                          {d.estimated_tax != null ? (
+                            <span style={{ color: 'var(--warning)' }}>
+                              ~{formatCurrency(d.estimated_tax)}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+                              Need current price
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
+              <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                💡 Tip: You can sell before the deemed disposal date to control when you realize the gain.
+                After deemed disposal, your cost basis resets to the deemed disposal value.
+              </div>
             </div>
           )}
         </div>
@@ -577,4 +601,47 @@ function formatDate(dateStr: string): string {
     month: 'short',
     day: 'numeric',
   })
+}
+
+function getDaysUntil(dateStr: string): number {
+  const target = new Date(dateStr)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  target.setHours(0, 0, 0, 0)
+  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function getUrgencyStyle(daysUntil: number): React.CSSProperties {
+  if (daysUntil < 0) {
+    return { color: 'var(--danger)', fontWeight: 600 }
+  } else if (daysUntil <= 90) {
+    return { color: 'var(--danger)', fontWeight: 500 }
+  } else if (daysUntil <= 365) {
+    return { color: 'var(--warning)', fontWeight: 500 }
+  }
+  return {}
+}
+
+function formatTimeRemaining(days: number): string {
+  if (days < 0) {
+    return 'OVERDUE'
+  } else if (days === 0) {
+    return 'Today!'
+  } else if (days === 1) {
+    return '1 day'
+  } else if (days < 30) {
+    return `${days} days`
+  } else if (days < 365) {
+    const months = Math.floor(days / 30)
+    return months === 1 ? '1 month' : `${months} months`
+  } else {
+    const years = Math.floor(days / 365)
+    const remainingMonths = Math.floor((days % 365) / 30)
+    if (remainingMonths === 0) {
+      return years === 1 ? '1 year' : `${years} years`
+    }
+    return years === 1
+      ? `1 year ${remainingMonths}m`
+      : `${years} years ${remainingMonths}m`
+  }
 }
