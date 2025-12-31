@@ -1,10 +1,12 @@
 import { useState, useRef } from 'react'
-import { uploadPDF, type UploadResponse } from '../services/api'
+import { uploadPDF, clearAllData, type UploadResponse } from '../services/api'
 
 export default function Upload() {
   const [uploading, setUploading] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [result, setResult] = useState<UploadResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [clearMessage, setClearMessage] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -18,12 +20,31 @@ export default function Upload() {
       setUploading(true)
       setError(null)
       setResult(null)
+      setClearMessage(null)
       const response = await uploadPDF(file)
       setResult(response)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function handleClearData() {
+    if (!confirm('Are you sure you want to delete all data? This cannot be undone.')) {
+      return
+    }
+
+    try {
+      setClearing(true)
+      setError(null)
+      setResult(null)
+      const response = await clearAllData()
+      setClearMessage(`Deleted ${response.deleted.transactions} transactions, ${response.deleted.income_events} income events, and ${response.deleted.assets} assets.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear data')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -93,13 +114,67 @@ export default function Upload() {
           </div>
         )}
 
-        {result && (
+        {clearMessage && (
           <div className="alert alert-success" style={{ marginTop: '16px' }}>
-            <strong>Upload successful!</strong>
-            <p style={{ marginTop: '8px' }}>
-              Imported {result.transactions_imported} transactions and{' '}
-              {result.income_events_imported} income events for tax year {result.tax_year}.
-            </p>
+            {clearMessage}
+          </div>
+        )}
+
+        {result && (
+          <div style={{ marginTop: '24px' }}>
+            <div className="alert alert-success">
+              <strong>Upload successful!</strong>
+              <p style={{ marginTop: '8px' }}>
+                Tax Year: <strong>{result.tax_year}</strong> ({result.period.start} to {result.period.end})
+              </p>
+              {result.skipped_duplicates > 0 && (
+                <p style={{ marginTop: '4px', color: 'var(--warning)' }}>
+                  Skipped {result.skipped_duplicates} duplicate records
+                </p>
+              )}
+            </div>
+
+            {/* Data Summary */}
+            <h3 style={{ marginTop: '24px', marginBottom: '16px' }}>Imported Data Summary</h3>
+            <div className="stat-grid">
+              <div className="stat-card">
+                <div className="stat-label">Buys</div>
+                <div className="stat-value">{result.summary.buys.count}</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  {formatCurrency(result.summary.buys.total)}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Sells</div>
+                <div className="stat-value">{result.summary.sells.count}</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  {formatCurrency(result.summary.sells.total)}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Interest Payments</div>
+                <div className="stat-value">{result.summary.interest.count}</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  {formatCurrency(result.summary.interest.total)}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Dividends</div>
+                <div className="stat-value">{result.summary.dividends.count}</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  {formatCurrency(result.summary.dividends.total)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
+              <a href="/portfolio" className="btn btn-primary">
+                View Portfolio
+              </a>
+              <a href="/tax" className="btn btn-secondary">
+                Calculate Tax
+              </a>
+            </div>
           </div>
         )}
       </div>
@@ -109,11 +184,37 @@ export default function Upload() {
         <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
           The parser extracts the following from Trade Republic annual tax reports:
         </p>
-        <ul style={{ marginLeft: '20px', lineHeight: '2' }}>
-          <li><strong>Section V:</strong> Interest payments, dividends, distributions</li>
-          <li><strong>Section VI:</strong> Realized gains and losses</li>
-          <li><strong>Section VII:</strong> Transaction history (buys and sells)</li>
-        </ul>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>Description</th>
+              <th>Tax Treatment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Section V</strong></td>
+              <td>Interest payments</td>
+              <td>DIRT 33%</td>
+            </tr>
+            <tr>
+              <td><strong>Section V</strong></td>
+              <td>Dividends & distributions</td>
+              <td>Marginal income tax rate</td>
+            </tr>
+            <tr>
+              <td><strong>Section VII</strong></td>
+              <td>Stock trades (Buy/Sell)</td>
+              <td>CGT 33% (€1,270 exemption)</td>
+            </tr>
+            <tr>
+              <td><strong>Section VII</strong></td>
+              <td>EU ETF trades (Buy/Sell)</td>
+              <td>Exit Tax 41% (no exemption)</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div className="card">
@@ -130,6 +231,29 @@ export default function Upload() {
           </p>
         </div>
       </div>
+
+      {/* Data Management */}
+      <div className="card" style={{ borderColor: 'var(--danger)' }}>
+        <h2 className="card-title" style={{ color: 'var(--danger)' }}>Data Management</h2>
+        <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
+          If you need to start fresh or re-import your data, you can clear all existing data below.
+        </p>
+        <button
+          className="btn"
+          style={{ background: 'var(--danger)', color: 'white' }}
+          onClick={handleClearData}
+          disabled={clearing}
+        >
+          {clearing ? 'Clearing...' : 'Clear All Data'}
+        </button>
+      </div>
     </div>
   )
+}
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-IE', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(amount)
 }

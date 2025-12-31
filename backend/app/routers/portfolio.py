@@ -1,16 +1,42 @@
 """Portfolio router for viewing holdings and transactions."""
 
+import csv
+import io
 from datetime import date
 from decimal import Decimal
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, Body
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..models import get_db, Asset, Transaction, Holding, TransactionType
+from ..models import get_db, Asset, Transaction, Holding, TransactionType, IncomeEvent, AssetType
 from ..schemas import HoldingResponse, TransactionResponse
+from ..services.exit_tax_calculator import ExitTaxCalculator
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
+
+
+class TransactionCreate(BaseModel):
+    """Schema for creating a new transaction."""
+    isin: str
+    name: str
+    transaction_type: str  # "buy" or "sell"
+    transaction_date: date
+    quantity: float
+    unit_price: float
+    fees: float = 0
+    notes: Optional[str] = None
+
+
+class TransactionUpdate(BaseModel):
+    """Schema for updating a transaction."""
+    transaction_date: Optional[date] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    fees: Optional[float] = None
+    notes: Optional[str] = None
 
 
 @router.get("/holdings")
@@ -132,7 +158,8 @@ async def get_transactions(
             "gross_amount": float(t.gross_amount),
             "fees": float(t.fees),
             "net_amount": float(t.net_amount),
-            "realized_gain_loss": realized_gl
+            "realized_gain_loss": realized_gl,
+            "notes": t.notes
         })
 
     return result
@@ -155,3 +182,282 @@ async def get_portfolio_summary(db: Session = Depends(get_db)) -> dict:
         "assets_by_type": {c[0].value: c[1] for c in asset_counts},
         "total_transactions": trans_count
     }
+
+
+@router.get("/income")
+async def get_income_events(
+    db: Session = Depends(get_db),
+    income_type: Optional[str] = Query(None, description="Filter by type: interest, dividend, distribution"),
+    start_date: Optional[date] = Query(None, description="Start date"),
+    end_date: Optional[date] = Query(None, description="End date"),
+    limit: int = Query(100, le=1000),
+    offset: int = Query(0)
+) -> list[dict]:
+    """Get income events (dividends, interest, distributions)."""
+    query = db.query(IncomeEvent)
+
+    if income_type:
+        query = query.filter(IncomeEvent.income_type == income_type.lower())
+
+    if start_date:
+        query = query.filter(IncomeEvent.payment_date >= start_date)
+
+    if end_date:
+        query = query.filter(IncomeEvent.payment_date <= end_date)
+
+    events = query.order_by(
+        IncomeEvent.payment_date.desc()
+    ).offset(offset).limit(limit).all()
+
+    result = []
+    for e in events:
+        # Get asset name if linked
+        asset_name = None
+        asset_isin = None
+        if e.asset_id:
+            asset = db.query(Asset).filter(Asset.id == e.asset_id).first()
+            if asset:
+                asset_name = asset.name
+                asset_isin = asset.isin
+
+        result.append({
+            "id": e.id,
+            "income_type": e.income_type,
+            "payment_date": e.payment_date.isoformat(),
+            "gross_amount": float(e.gross_amount),
+            "withholding_tax": float(e.withholding_tax) if e.withholding_tax else 0,
+            "net_amount": float(e.net_amount),
+            "source_country": e.source_country,
+            "asset_name": asset_name,
+            "asset_isin": asset_isin,
+            "tax_treatment": "DIRT 33%" if e.income_type == "interest" else "Marginal Rate"
+        })
+
+    return result
+
+
+# ============ Transaction CRUD ============
+
+@router.post("/transactions")
+async def create_transaction(
+    data: TransactionCreate,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Create a new transaction manually."""
+    # Get or create asset
+    asset = db.query(Asset).filter(Asset.isin == data.isin).first()
+    if not asset:
+        # Determine asset type
+        is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(data.isin, data.name)
+        asset_type = AssetType.ETF_EU if is_exit_tax else AssetType.STOCK
+
+        asset = Asset(
+            isin=data.isin,
+            name=data.name,
+            asset_type=asset_type,
+            is_eu_fund=is_exit_tax
+        )
+        db.add(asset)
+        db.flush()
+
+    # Calculate amounts
+    quantity = Decimal(str(data.quantity))
+    unit_price = Decimal(str(data.unit_price))
+    fees = Decimal(str(data.fees))
+    gross_amount = quantity * unit_price
+    net_amount = gross_amount - fees if data.transaction_type == "buy" else gross_amount + fees
+
+    # Create transaction
+    trans_type = TransactionType.BUY if data.transaction_type == "buy" else TransactionType.SELL
+    trans_quantity = quantity if trans_type == TransactionType.BUY else -quantity
+
+    transaction = Transaction(
+        asset_id=asset.id,
+        transaction_type=trans_type,
+        transaction_date=data.transaction_date,
+        settlement_date=data.transaction_date,
+        quantity=trans_quantity,
+        unit_price=unit_price,
+        gross_amount=gross_amount,
+        fees=fees,
+        net_amount=net_amount,
+        currency="EUR",
+        exchange_rate=Decimal("1.0000"),
+        amount_eur=gross_amount,
+        notes=data.notes
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    return {
+        "success": True,
+        "message": f"Transaction created successfully",
+        "transaction": {
+            "id": transaction.id,
+            "isin": asset.isin,
+            "name": asset.name,
+            "transaction_type": data.transaction_type,
+            "transaction_date": data.transaction_date.isoformat(),
+            "quantity": float(quantity),
+            "unit_price": float(unit_price),
+            "gross_amount": float(gross_amount),
+            "fees": float(fees),
+            "notes": data.notes
+        }
+    }
+
+
+@router.get("/transactions/export/csv")
+async def export_transactions_csv(
+    db: Session = Depends(get_db),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None)
+) -> StreamingResponse:
+    """Export all transactions as CSV."""
+    query = db.query(Transaction).join(Asset)
+
+    if start_date:
+        query = query.filter(Transaction.transaction_date >= start_date)
+    if end_date:
+        query = query.filter(Transaction.transaction_date <= end_date)
+
+    transactions = query.order_by(Transaction.transaction_date.desc()).all()
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    writer.writerow([
+        "Date",
+        "ISIN",
+        "Asset Name",
+        "Type",
+        "Quantity",
+        "Unit Price (EUR)",
+        "Gross Amount (EUR)",
+        "Fees (EUR)",
+        "Net Amount (EUR)",
+        "Notes"
+    ])
+
+    # Data rows
+    for t in transactions:
+        writer.writerow([
+            t.transaction_date.isoformat(),
+            t.asset.isin,
+            t.asset.name,
+            t.transaction_type.value.upper(),
+            float(abs(t.quantity)),
+            float(t.unit_price),
+            float(t.gross_amount),
+            float(t.fees),
+            float(t.net_amount),
+            t.notes or ""
+        ])
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=transactions_{date.today().isoformat()}.csv"
+        }
+    )
+
+
+@router.delete("/transactions/{transaction_id}")
+async def delete_transaction(
+    transaction_id: int,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Delete a transaction by ID."""
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    db.delete(transaction)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Transaction {transaction_id} deleted successfully"
+    }
+
+
+@router.put("/transactions/{transaction_id}")
+async def update_transaction(
+    transaction_id: int,
+    data: TransactionUpdate,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Update a transaction."""
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Update fields if provided
+    if data.transaction_date is not None:
+        transaction.transaction_date = data.transaction_date
+        transaction.settlement_date = data.transaction_date
+
+    if data.quantity is not None:
+        quantity = Decimal(str(data.quantity))
+        if transaction.transaction_type == TransactionType.SELL:
+            quantity = -abs(quantity)
+        transaction.quantity = quantity
+
+    if data.unit_price is not None:
+        transaction.unit_price = Decimal(str(data.unit_price))
+
+    # Always recalculate amounts if quantity or price changed
+    if data.quantity is not None or data.unit_price is not None:
+        quantity = abs(transaction.quantity)
+        transaction.gross_amount = quantity * transaction.unit_price
+        transaction.amount_eur = transaction.gross_amount
+
+    if data.fees is not None:
+        transaction.fees = Decimal(str(data.fees))
+
+    # Always recalculate net amount if any amount field changed
+    if data.quantity is not None or data.unit_price is not None or data.fees is not None:
+        if transaction.transaction_type == TransactionType.BUY:
+            transaction.net_amount = transaction.gross_amount - transaction.fees
+        else:
+            transaction.net_amount = transaction.gross_amount + transaction.fees
+
+    if data.notes is not None:
+        transaction.notes = data.notes
+
+    db.commit()
+    db.refresh(transaction)
+
+    return {
+        "success": True,
+        "message": f"Transaction {transaction_id} updated successfully",
+        "transaction": {
+            "id": transaction.id,
+            "transaction_date": transaction.transaction_date.isoformat(),
+            "quantity": float(abs(transaction.quantity)),
+            "unit_price": float(transaction.unit_price),
+            "gross_amount": float(transaction.gross_amount),
+            "fees": float(transaction.fees),
+            "notes": transaction.notes
+        }
+    }
+
+
+@router.get("/assets")
+async def get_assets(db: Session = Depends(get_db)) -> list[dict]:
+    """Get list of all assets for transaction form dropdown."""
+    assets = db.query(Asset).all()
+    return [
+        {
+            "isin": a.isin,
+            "name": a.name,
+            "asset_type": a.asset_type.value
+        }
+        for a in assets
+    ]

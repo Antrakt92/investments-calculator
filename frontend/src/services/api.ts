@@ -5,7 +5,37 @@ export interface UploadResponse {
   message: string
   transactions_imported: number
   income_events_imported: number
+  skipped_duplicates: number
   tax_year: number
+  period: {
+    start: string
+    end: string
+  }
+  summary: {
+    buys: { count: number; total: number }
+    sells: { count: number; total: number }
+    interest: { count: number; total: number }
+    dividends: { count: number; total: number }
+  }
+}
+
+export async function clearAllData(): Promise<{
+  success: boolean
+  message: string
+  deleted: {
+    transactions: number
+    income_events: number
+    assets: number
+  }
+}> {
+  const response = await fetch(`${API_BASE}/upload/clear-data`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to clear data')
+  }
+  return response.json()
 }
 
 export interface Holding {
@@ -30,6 +60,7 @@ export interface Transaction {
   fees: number
   net_amount: number
   realized_gain_loss: number | null
+  notes: string | null
 }
 
 export interface TaxResult {
@@ -181,5 +212,132 @@ export async function getDeemedDisposals(yearsAhead: number = 3): Promise<Array<
 }>> {
   const response = await fetch(`${API_BASE}/tax/deemed-disposals?years_ahead=${yearsAhead}`)
   if (!response.ok) throw new Error('Failed to fetch deemed disposals')
+  return response.json()
+}
+
+export interface IncomeEvent {
+  id: number
+  income_type: string
+  payment_date: string
+  gross_amount: number
+  withholding_tax: number
+  net_amount: number
+  source_country: string | null
+  asset_name: string | null
+  asset_isin: string | null
+  tax_treatment: string
+}
+
+export async function getIncomeEvents(params?: {
+  income_type?: string
+  start_date?: string
+  end_date?: string
+  limit?: number
+}): Promise<IncomeEvent[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.income_type) searchParams.set('income_type', params.income_type)
+  if (params?.start_date) searchParams.set('start_date', params.start_date)
+  if (params?.end_date) searchParams.set('end_date', params.end_date)
+  if (params?.limit) searchParams.set('limit', params.limit.toString())
+
+  const response = await fetch(`${API_BASE}/portfolio/income?${searchParams}`)
+  if (!response.ok) throw new Error('Failed to fetch income events')
+  return response.json()
+}
+
+// Transaction CRUD
+
+export interface TransactionCreate {
+  isin: string
+  name: string
+  transaction_type: 'buy' | 'sell'
+  transaction_date: string
+  quantity: number
+  unit_price: number
+  fees?: number
+  notes?: string
+}
+
+export interface AssetInfo {
+  isin: string
+  name: string
+  asset_type: string
+}
+
+export async function createTransaction(data: TransactionCreate): Promise<{
+  success: boolean
+  message: string
+  transaction: Transaction
+}> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to create transaction')
+  }
+  return response.json()
+}
+
+export async function deleteTransaction(id: number): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions/${id}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to delete transaction')
+  }
+  return response.json()
+}
+
+export async function getAssets(): Promise<AssetInfo[]> {
+  const response = await fetch(`${API_BASE}/portfolio/assets`)
+  if (!response.ok) throw new Error('Failed to fetch assets')
+  return response.json()
+}
+
+export interface TransactionUpdate {
+  transaction_date?: string
+  quantity?: number
+  unit_price?: number
+  fees?: number
+  notes?: string
+}
+
+export async function updateTransaction(
+  id: number,
+  data: TransactionUpdate
+): Promise<{ success: boolean; message: string; transaction: Transaction }> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to update transaction')
+  }
+  return response.json()
+}
+
+export async function exportTransactionsCSV(): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions/export/csv`)
+  if (!response.ok) throw new Error('Failed to export transactions')
+  return response.blob()
+}
+
+export interface LossesCarryForward {
+  from_year: number
+  losses_to_carry_forward: number
+  total_gains: number
+  total_losses: number
+  net_gain_loss: number
+}
+
+export async function getLossesCarryForward(fromYear: number): Promise<LossesCarryForward> {
+  const response = await fetch(`${API_BASE}/tax/losses-to-carry-forward/${fromYear}`)
+  if (!response.ok) throw new Error('Failed to fetch losses')
   return response.json()
 }

@@ -37,11 +37,19 @@ class FundHolding:
     def __post_init__(self):
         self.remaining_quantity = self.quantity
         # Calculate deemed disposal date (8 years from acquisition)
-        self.deemed_disposal_date = date(
-            self.acquisition_date.year + 8,
-            self.acquisition_date.month,
-            self.acquisition_date.day
-        )
+        # Handle Feb 29 edge case - use Feb 28 if target year is not a leap year
+        self.deemed_disposal_date = self._add_years(self.acquisition_date, 8)
+
+    @staticmethod
+    def _add_years(d: date, years: int) -> date:
+        """Add years to a date, handling Feb 29 edge case."""
+        try:
+            return date(d.year + years, d.month, d.day)
+        except ValueError:
+            # Feb 29 in non-leap year - use Feb 28
+            if d.month == 2 and d.day == 29:
+                return date(d.year + years, 2, 28)
+            raise
 
 
 @dataclass

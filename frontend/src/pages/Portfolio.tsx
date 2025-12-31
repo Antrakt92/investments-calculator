@@ -1,13 +1,48 @@
 import { useState, useEffect } from 'react'
-import { getHoldings, getTransactions, type Holding, type Transaction } from '../services/api'
+import {
+  getHoldings,
+  getTransactions,
+  getIncomeEvents,
+  getAssets,
+  createTransaction,
+  deleteTransaction,
+  updateTransaction,
+  exportTransactionsCSV,
+  type Holding,
+  type Transaction,
+  type IncomeEvent,
+  type AssetInfo,
+  type TransactionCreate,
+  type TransactionUpdate
+} from '../services/api'
 
 export default function Portfolio() {
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions'>('holdings')
+  const [incomeEvents, setIncomeEvents] = useState<IncomeEvent[]>([])
+  const [assets, setAssets] = useState<AssetInfo[]>([])
+  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions' | 'income'>('holdings')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | 'buy' | 'sell'>('all')
+  const [transFilter, setTransFilter] = useState<'all' | 'buy' | 'sell'>('all')
+  const [incomeFilter, setIncomeFilter] = useState<'all' | 'interest' | 'dividend'>('all')
+
+  // Transaction form state
+  const [showForm, setShowForm] = useState(false)
+  const [formLoading, setFormLoading] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formSuccess, setFormSuccess] = useState<string | null>(null)
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [formData, setFormData] = useState<TransactionCreate>({
+    isin: '',
+    name: '',
+    transaction_type: 'buy',
+    transaction_date: new Date().toISOString().split('T')[0],
+    quantity: 0,
+    unit_price: 0,
+    fees: 0,
+    notes: '',
+  })
 
   useEffect(() => {
     loadData()
@@ -16,12 +51,16 @@ export default function Portfolio() {
   async function loadData() {
     try {
       setLoading(true)
-      const [holdingsData, transactionsData] = await Promise.all([
+      const [holdingsData, transactionsData, incomeData, assetsData] = await Promise.all([
         getHoldings(),
         getTransactions({ limit: 100 }),
+        getIncomeEvents({ limit: 100 }),
+        getAssets(),
       ])
       setHoldings(holdingsData)
       setTransactions(transactionsData)
+      setIncomeEvents(incomeData)
+      setAssets(assetsData)
     } catch (err) {
       setError('Failed to load portfolio data')
     } finally {
@@ -29,10 +68,155 @@ export default function Portfolio() {
     }
   }
 
+  async function handleSubmitTransaction(e: React.FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    setFormSuccess(null)
+
+    // Validation
+    if (!editingTransaction) {
+      if (!formData.isin.trim()) {
+        setFormError('ISIN is required')
+        return
+      }
+      if (!formData.name.trim()) {
+        setFormError('Asset name is required')
+        return
+      }
+    }
+    if (formData.quantity <= 0) {
+      setFormError('Quantity must be greater than 0')
+      return
+    }
+    if (formData.unit_price <= 0) {
+      setFormError('Price must be greater than 0')
+      return
+    }
+
+    try {
+      setFormLoading(true)
+
+      if (editingTransaction) {
+        // Update existing transaction
+        const updateData: TransactionUpdate = {
+          transaction_date: formData.transaction_date,
+          quantity: formData.quantity,
+          unit_price: formData.unit_price,
+          fees: formData.fees,
+          notes: formData.notes,
+        }
+        const result = await updateTransaction(editingTransaction.id, updateData)
+        setFormSuccess(result.message)
+      } else {
+        // Create new transaction
+        const result = await createTransaction(formData)
+        setFormSuccess(result.message)
+      }
+
+      // Reset form
+      resetForm()
+      // Reload data
+      await loadData()
+      // Close form after short delay
+      setTimeout(() => {
+        setShowForm(false)
+        setFormSuccess(null)
+      }, 1500)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save transaction')
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  function resetForm() {
+    setFormData({
+      isin: '',
+      name: '',
+      transaction_type: 'buy',
+      transaction_date: new Date().toISOString().split('T')[0],
+      quantity: 0,
+      unit_price: 0,
+      fees: 0,
+      notes: '',
+    })
+    setEditingTransaction(null)
+  }
+
+  function handleEditTransaction(trans: Transaction) {
+    setEditingTransaction(trans)
+    setFormData({
+      isin: trans.isin,
+      name: trans.name,
+      transaction_type: trans.transaction_type as 'buy' | 'sell',
+      transaction_date: trans.transaction_date,
+      quantity: trans.quantity,
+      unit_price: trans.unit_price,
+      fees: trans.fees,
+      notes: trans.notes || '',
+    })
+    setShowForm(true)
+    setFormError(null)
+    setFormSuccess(null)
+  }
+
+  async function handleExportCSV() {
+    try {
+      const blob = await exportTransactionsCSV()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      alert('Failed to export CSV')
+    }
+  }
+
+  async function handleDeleteTransaction(id: number) {
+    if (!confirm('Are you sure you want to delete this transaction?')) {
+      return
+    }
+    try {
+      await deleteTransaction(id)
+      await loadData()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete transaction')
+    }
+  }
+
+  function handleAssetSelect(isin: string) {
+    const asset = assets.find(a => a.isin === isin)
+    if (asset) {
+      setFormData(prev => ({
+        ...prev,
+        isin: asset.isin,
+        name: asset.name,
+      }))
+    }
+  }
+
   const filteredTransactions = transactions.filter(t => {
-    if (filter === 'all') return true
-    return t.transaction_type === filter
+    if (transFilter === 'all') return true
+    return t.transaction_type === transFilter
   })
+
+  const filteredIncome = incomeEvents.filter(e => {
+    if (incomeFilter === 'all') return true
+    return e.income_type === incomeFilter
+  })
+
+  // Calculate income totals
+  const interestTotal = incomeEvents
+    .filter(e => e.income_type === 'interest')
+    .reduce((sum, e) => sum + e.gross_amount, 0)
+  const dividendTotal = incomeEvents
+    .filter(e => e.income_type === 'dividend' || e.income_type === 'distribution')
+    .reduce((sum, e) => sum + e.gross_amount, 0)
+  const withholdingTotal = incomeEvents.reduce((sum, e) => sum + e.withholding_tax, 0)
 
   if (loading) {
     return <div className="card">Loading...</div>
@@ -57,8 +241,15 @@ export default function Portfolio() {
         <button
           className={`btn ${activeTab === 'transactions' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('transactions')}
+          style={{ marginRight: '8px' }}
         >
           Transactions ({transactions.length})
+        </button>
+        <button
+          className={`btn ${activeTab === 'income' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('income')}
+        >
+          Income ({incomeEvents.length})
         </button>
       </div>
 
@@ -115,28 +306,278 @@ export default function Portfolio() {
 
       {activeTab === 'transactions' && (
         <div className="card">
-          <div style={{ marginBottom: '16px' }}>
-            <button
-              className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('all')}
-              style={{ marginRight: '8px' }}
-            >
-              All
-            </button>
-            <button
-              className={`btn ${filter === 'buy' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('buy')}
-              style={{ marginRight: '8px' }}
-            >
-              Buys
-            </button>
-            <button
-              className={`btn ${filter === 'sell' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('sell')}
-            >
-              Sells
-            </button>
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <button
+                className={`btn ${transFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setTransFilter('all')}
+                style={{ marginRight: '8px' }}
+              >
+                All
+              </button>
+              <button
+                className={`btn ${transFilter === 'buy' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setTransFilter('buy')}
+                style={{ marginRight: '8px' }}
+              >
+                Buys
+              </button>
+              <button
+                className={`btn ${transFilter === 'sell' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setTransFilter('sell')}
+              >
+                Sells
+              </button>
+            </div>
+            <div>
+              {transactions.length > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleExportCSV}
+                  style={{ marginRight: '8px' }}
+                >
+                  Export CSV
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (showForm) {
+                    setShowForm(false)
+                    resetForm()
+                  } else {
+                    resetForm()
+                    setShowForm(true)
+                  }
+                }}
+              >
+                {showForm ? 'Cancel' : '+ Add Transaction'}
+              </button>
+            </div>
           </div>
+
+          {/* Transaction Form */}
+          {showForm && (
+            <div style={{
+              background: 'var(--bg-secondary)',
+              padding: '20px',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              border: '1px solid var(--border-color)'
+            }}>
+              <h3 style={{ marginTop: 0, marginBottom: '16px' }}>
+                {editingTransaction ? `Edit Transaction - ${editingTransaction.name}` : 'Add Transaction'}
+              </h3>
+
+              {formError && (
+                <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+                  {formError}
+                </div>
+              )}
+              {formSuccess && (
+                <div className="alert alert-success" style={{ marginBottom: '16px' }}>
+                  {formSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmitTransaction}>
+                {/* Asset Selection - only show when adding new */}
+                {!editingTransaction && assets.length > 0 && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                      Select Existing Asset (optional)
+                    </label>
+                    <select
+                      className="form-input"
+                      onChange={(e) => handleAssetSelect(e.target.value)}
+                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                    >
+                      <option value="">-- Or enter new asset below --</option>
+                      {assets.map(a => (
+                        <option key={a.isin} value={a.isin}>
+                          {a.name} ({a.isin})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* ISIN/Name fields - only show when adding new */}
+                {!editingTransaction && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                        ISIN *
+                      </label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. US0378331005"
+                        value={formData.isin}
+                        onChange={(e) => setFormData(prev => ({ ...prev, isin: e.target.value.toUpperCase() }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                        Asset Name *
+                      </label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Apple Inc."
+                        value={formData.name}
+                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: editingTransaction ? 'repeat(4, 1fr)' : 'repeat(5, 1fr)', gap: '16px', marginTop: '16px' }}>
+                  {/* Type selector - only show when adding new */}
+                  {!editingTransaction && (
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                        Type *
+                      </label>
+                      <select
+                        className="form-input"
+                        value={formData.transaction_type}
+                        onChange={(e) => setFormData(prev => ({ ...prev, transaction_type: e.target.value as 'buy' | 'sell' }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                      >
+                        <option value="buy">Buy</option>
+                        <option value="sell">Sell</option>
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                      Date *
+                    </label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={formData.transaction_date}
+                      onChange={(e) => setFormData(prev => ({ ...prev, transaction_date: e.target.value }))}
+                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                      Quantity *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      className="form-input"
+                      placeholder="0.0000"
+                      value={formData.quantity || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, quantity: parseFloat(e.target.value) || 0 }))}
+                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                      Price (EUR) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="form-input"
+                      placeholder="0.00"
+                      value={formData.unit_price || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, unit_price: parseFloat(e.target.value) || 0 }))}
+                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                      Fees (EUR)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="form-input"
+                      placeholder="0.00"
+                      value={formData.fees || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, fees: parseFloat(e.target.value) || 0 }))}
+                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Notes field */}
+                <div style={{ marginTop: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                    Notes (optional)
+                  </label>
+                  <textarea
+                    className="form-input"
+                    placeholder="Add any notes about this transaction..."
+                    value={formData.notes || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      minHeight: '60px',
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+
+                {/* Preview */}
+                {formData.quantity > 0 && formData.unit_price > 0 && (
+                  <div style={{
+                    marginTop: '16px',
+                    padding: '12px',
+                    background: 'var(--bg-primary)',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}>
+                    <strong>Total Amount:</strong> {formatCurrency(formData.quantity * formData.unit_price)}
+                    {(formData.fees || 0) > 0 && (
+                      <span style={{ marginLeft: '16px' }}>
+                        <strong>Net:</strong> {formatCurrency(
+                          formData.transaction_type === 'buy'
+                            ? formData.quantity * formData.unit_price + (formData.fees || 0)
+                            : formData.quantity * formData.unit_price - (formData.fees || 0)
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ marginTop: '16px' }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={formLoading}
+                    style={{ marginRight: '8px' }}
+                  >
+                    {formLoading ? 'Saving...' : editingTransaction ? 'Update Transaction' : 'Add Transaction'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setShowForm(false)
+                      resetForm()
+                      setFormError(null)
+                      setFormSuccess(null)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {filteredTransactions.length === 0 ? (
             <p style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
@@ -153,6 +594,7 @@ export default function Portfolio() {
                   <th>Price</th>
                   <th>Amount</th>
                   <th>Gain/Loss</th>
+                  <th style={{ width: '120px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,6 +606,16 @@ export default function Portfolio() {
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {trans.isin}
                       </div>
+                      {trans.notes && (
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'var(--primary)',
+                          fontStyle: 'italic',
+                          marginTop: '2px'
+                        }}>
+                          {trans.notes.length > 50 ? trans.notes.substring(0, 50) + '...' : trans.notes}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span
@@ -192,11 +644,137 @@ export default function Portfolio() {
                         </span>
                       )}
                     </td>
+                    <td>
+                      <button
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          marginRight: '4px',
+                        }}
+                        onClick={() => handleEditTransaction(trans)}
+                        title="Edit transaction"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          color: 'var(--danger)',
+                        }}
+                        onClick={() => handleDeleteTransaction(trans.id)}
+                        title="Delete transaction"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {activeTab === 'income' && (
+        <div>
+          {/* Income Summary */}
+          <div className="stat-grid" style={{ marginBottom: '16px' }}>
+            <div className="stat-card">
+              <div className="stat-label">Interest (DIRT 33%)</div>
+              <div className="stat-value">{formatCurrency(interestTotal)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Dividends (Marginal Rate)</div>
+              <div className="stat-value">{formatCurrency(dividendTotal)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Withholding Tax Paid</div>
+              <div className="stat-value">{formatCurrency(withholdingTotal)}</div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                className={`btn ${incomeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setIncomeFilter('all')}
+                style={{ marginRight: '8px' }}
+              >
+                All
+              </button>
+              <button
+                className={`btn ${incomeFilter === 'interest' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setIncomeFilter('interest')}
+                style={{ marginRight: '8px' }}
+              >
+                Interest
+              </button>
+              <button
+                className={`btn ${incomeFilter === 'dividend' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setIncomeFilter('dividend')}
+              >
+                Dividends
+              </button>
+            </div>
+
+            {filteredIncome.length === 0 ? (
+              <p style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                No income events found.
+              </p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Source</th>
+                    <th>Gross Amount</th>
+                    <th>Withholding Tax</th>
+                    <th>Net Amount</th>
+                    <th>Tax Treatment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredIncome.map(event => (
+                    <tr key={event.id}>
+                      <td>{formatDate(event.payment_date)}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{event.income_type}</td>
+                      <td>
+                        {event.asset_name ? (
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{event.asset_name}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                              {event.asset_isin}
+                            </div>
+                          </div>
+                        ) : (
+                          <span>{event.source_country || 'Trade Republic'}</span>
+                        )}
+                      </td>
+                      <td>{formatCurrency(event.gross_amount)}</td>
+                      <td style={{ color: event.withholding_tax > 0 ? 'var(--danger)' : 'inherit' }}>
+                        {event.withholding_tax > 0 ? `-${formatCurrency(event.withholding_tax)}` : '€0.00'}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>{formatCurrency(event.net_amount)}</td>
+                      <td>
+                        <span
+                          className="tax-rate-badge"
+                          style={{
+                            background: event.income_type === 'interest' ? 'var(--primary)' : 'var(--warning)',
+                          }}
+                        >
+                          {event.tax_treatment}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
     </div>
