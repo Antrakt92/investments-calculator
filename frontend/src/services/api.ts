@@ -5,7 +5,37 @@ export interface UploadResponse {
   message: string
   transactions_imported: number
   income_events_imported: number
+  skipped_duplicates: number
   tax_year: number
+  period: {
+    start: string
+    end: string
+  }
+  summary: {
+    buys: { count: number; total: number }
+    sells: { count: number; total: number }
+    interest: { count: number; total: number }
+    dividends: { count: number; total: number }
+  }
+}
+
+export async function clearAllData(): Promise<{
+  success: boolean
+  message: string
+  deleted: {
+    transactions: number
+    income_events: number
+    assets: number
+  }
+}> {
+  const response = await fetch(`${API_BASE}/upload/clear-data`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to clear data')
+  }
+  return response.json()
 }
 
 export interface Holding {

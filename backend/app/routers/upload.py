@@ -1,6 +1,7 @@
 """Upload router for Trade Republic PDF reports."""
 
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -12,7 +13,7 @@ from ..schemas import UploadResponse
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 
-@router.post("/trade-republic-pdf", response_model=UploadResponse)
+@router.post("/trade-republic-pdf")
 async def upload_trade_republic_pdf(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
@@ -20,6 +21,7 @@ async def upload_trade_republic_pdf(
     """
     Upload and parse a Trade Republic annual tax report PDF.
     Extracts transactions, income events, and stores in database.
+    Returns detailed summary for verification.
     """
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="File must be a PDF")
@@ -40,6 +42,15 @@ async def upload_trade_republic_pdf(
 
         transactions_count = 0
         income_count = 0
+        skipped_duplicates = 0
+
+        # Track totals for verification
+        total_buys = Decimal("0")
+        total_sells = Decimal("0")
+        total_interest = Decimal("0")
+        total_dividends = Decimal("0")
+        buy_count = 0
+        sell_count = 0
 
         # Process transactions
         for trans in parsed.transactions:
@@ -72,7 +83,7 @@ async def upload_trade_republic_pdf(
             ).first()
 
             if existing:
-                # Skip duplicate transaction
+                skipped_duplicates += 1
                 continue
 
             db_trans = Transaction(
@@ -92,6 +103,14 @@ async def upload_trade_republic_pdf(
             db.add(db_trans)
             transactions_count += 1
 
+            # Track totals
+            if trans.transaction_type == "buy":
+                total_buys += trans.market_value
+                buy_count += 1
+            else:
+                total_sells += trans.market_value
+                sell_count += 1
+
         # Process income events
         for income in parsed.income_events:
             # Get or create asset for dividends/distributions
@@ -110,7 +129,7 @@ async def upload_trade_republic_pdf(
             ).first()
 
             if existing_income:
-                # Skip duplicate income event
+                skipped_duplicates += 1
                 continue
 
             income_event = IncomeEvent(
@@ -125,15 +144,44 @@ async def upload_trade_republic_pdf(
             db.add(income_event)
             income_count += 1
 
+            # Track totals
+            if income.income_type.lower() == "interest":
+                total_interest += income.gross_amount
+            else:
+                total_dividends += income.gross_amount
+
         db.commit()
 
-        return UploadResponse(
-            success=True,
-            message=f"Successfully imported {transactions_count} transactions and {income_count} income events",
-            transactions_imported=transactions_count,
-            income_events_imported=income_count,
-            tax_year=parsed.period_end.year
-        )
+        return {
+            "success": True,
+            "message": f"Successfully imported {transactions_count} transactions and {income_count} income events",
+            "transactions_imported": transactions_count,
+            "income_events_imported": income_count,
+            "skipped_duplicates": skipped_duplicates,
+            "tax_year": parsed.period_end.year,
+            "period": {
+                "start": parsed.period_start.isoformat(),
+                "end": parsed.period_end.isoformat()
+            },
+            "summary": {
+                "buys": {
+                    "count": buy_count,
+                    "total": float(total_buys)
+                },
+                "sells": {
+                    "count": sell_count,
+                    "total": float(total_sells)
+                },
+                "interest": {
+                    "count": sum(1 for i in parsed.income_events if i.income_type.lower() == "interest"),
+                    "total": float(total_interest)
+                },
+                "dividends": {
+                    "count": sum(1 for i in parsed.income_events if i.income_type.lower() != "interest"),
+                    "total": float(total_dividends)
+                }
+            }
+        }
 
     except Exception as e:
         db.rollback()
@@ -142,6 +190,30 @@ async def upload_trade_republic_pdf(
     finally:
         # Clean up temp file
         tmp_path.unlink(missing_ok=True)
+
+
+@router.delete("/clear-data")
+async def clear_all_data(db: Session = Depends(get_db)):
+    """Delete all imported data from database."""
+    try:
+        # Delete in order due to foreign keys
+        deleted_income = db.query(IncomeEvent).delete()
+        deleted_trans = db.query(Transaction).delete()
+        deleted_assets = db.query(Asset).delete()
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "All data cleared successfully",
+            "deleted": {
+                "transactions": deleted_trans,
+                "income_events": deleted_income,
+                "assets": deleted_assets
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
 
 
 def _determine_asset_type(isin: str, name: str) -> AssetType:
