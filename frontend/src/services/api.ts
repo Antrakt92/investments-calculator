@@ -243,3 +243,55 @@ export async function getIncomeEvents(params?: {
   if (!response.ok) throw new Error('Failed to fetch income events')
   return response.json()
 }
+
+// Transaction CRUD
+
+export interface TransactionCreate {
+  isin: string
+  name: string
+  transaction_type: 'buy' | 'sell'
+  transaction_date: string
+  quantity: number
+  unit_price: number
+  fees?: number
+}
+
+export interface AssetInfo {
+  isin: string
+  name: string
+  asset_type: string
+}
+
+export async function createTransaction(data: TransactionCreate): Promise<{
+  success: boolean
+  message: string
+  transaction: Transaction
+}> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to create transaction')
+  }
+  return response.json()
+}
+
+export async function deleteTransaction(id: number): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions/${id}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to delete transaction')
+  }
+  return response.json()
+}
+
+export async function getAssets(): Promise<AssetInfo[]> {
+  const response = await fetch(`${API_BASE}/portfolio/assets`)
+  if (!response.ok) throw new Error('Failed to fetch assets')
+  return response.json()
+}

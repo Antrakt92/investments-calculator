@@ -3,14 +3,35 @@
 from datetime import date
 from decimal import Decimal
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, Body
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..models import get_db, Asset, Transaction, Holding, TransactionType, IncomeEvent
+from ..models import get_db, Asset, Transaction, Holding, TransactionType, IncomeEvent, AssetType
 from ..schemas import HoldingResponse, TransactionResponse
+from ..services.exit_tax_calculator import ExitTaxCalculator
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
+
+
+class TransactionCreate(BaseModel):
+    """Schema for creating a new transaction."""
+    isin: str
+    name: str
+    transaction_type: str  # "buy" or "sell"
+    transaction_date: date
+    quantity: float
+    unit_price: float
+    fees: float = 0
+
+
+class TransactionUpdate(BaseModel):
+    """Schema for updating a transaction."""
+    transaction_date: Optional[date] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    fees: Optional[float] = None
 
 
 @router.get("/holdings")
@@ -207,3 +228,161 @@ async def get_income_events(
         })
 
     return result
+
+
+# ============ Transaction CRUD ============
+
+@router.post("/transactions")
+async def create_transaction(
+    data: TransactionCreate,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Create a new transaction manually."""
+    # Get or create asset
+    asset = db.query(Asset).filter(Asset.isin == data.isin).first()
+    if not asset:
+        # Determine asset type
+        is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(data.isin, data.name)
+        asset_type = AssetType.ETF_EU if is_exit_tax else AssetType.STOCK
+
+        asset = Asset(
+            isin=data.isin,
+            name=data.name,
+            asset_type=asset_type,
+            is_eu_fund=is_exit_tax
+        )
+        db.add(asset)
+        db.flush()
+
+    # Calculate amounts
+    quantity = Decimal(str(data.quantity))
+    unit_price = Decimal(str(data.unit_price))
+    fees = Decimal(str(data.fees))
+    gross_amount = quantity * unit_price
+    net_amount = gross_amount - fees if data.transaction_type == "buy" else gross_amount + fees
+
+    # Create transaction
+    trans_type = TransactionType.BUY if data.transaction_type == "buy" else TransactionType.SELL
+    trans_quantity = quantity if trans_type == TransactionType.BUY else -quantity
+
+    transaction = Transaction(
+        asset_id=asset.id,
+        transaction_type=trans_type,
+        transaction_date=data.transaction_date,
+        settlement_date=data.transaction_date,
+        quantity=trans_quantity,
+        unit_price=unit_price,
+        gross_amount=gross_amount,
+        fees=fees,
+        net_amount=net_amount,
+        currency="EUR",
+        exchange_rate=Decimal("1.0000"),
+        amount_eur=gross_amount
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    return {
+        "success": True,
+        "message": f"Transaction created successfully",
+        "transaction": {
+            "id": transaction.id,
+            "isin": asset.isin,
+            "name": asset.name,
+            "transaction_type": data.transaction_type,
+            "transaction_date": data.transaction_date.isoformat(),
+            "quantity": float(quantity),
+            "unit_price": float(unit_price),
+            "gross_amount": float(gross_amount),
+            "fees": float(fees)
+        }
+    }
+
+
+@router.delete("/transactions/{transaction_id}")
+async def delete_transaction(
+    transaction_id: int,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Delete a transaction by ID."""
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    db.delete(transaction)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Transaction {transaction_id} deleted successfully"
+    }
+
+
+@router.put("/transactions/{transaction_id}")
+async def update_transaction(
+    transaction_id: int,
+    data: TransactionUpdate,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Update a transaction."""
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Update fields if provided
+    if data.transaction_date is not None:
+        transaction.transaction_date = data.transaction_date
+        transaction.settlement_date = data.transaction_date
+
+    if data.quantity is not None:
+        quantity = Decimal(str(data.quantity))
+        if transaction.transaction_type == TransactionType.SELL:
+            quantity = -abs(quantity)
+        transaction.quantity = quantity
+
+    if data.unit_price is not None:
+        unit_price = Decimal(str(data.unit_price))
+        transaction.unit_price = unit_price
+        # Recalculate amounts
+        quantity = abs(transaction.quantity)
+        transaction.gross_amount = quantity * unit_price
+        transaction.amount_eur = transaction.gross_amount
+
+    if data.fees is not None:
+        transaction.fees = Decimal(str(data.fees))
+        # Recalculate net amount
+        if transaction.transaction_type == TransactionType.BUY:
+            transaction.net_amount = transaction.gross_amount - transaction.fees
+        else:
+            transaction.net_amount = transaction.gross_amount + transaction.fees
+
+    db.commit()
+    db.refresh(transaction)
+
+    return {
+        "success": True,
+        "message": f"Transaction {transaction_id} updated successfully",
+        "transaction": {
+            "id": transaction.id,
+            "transaction_date": transaction.transaction_date.isoformat(),
+            "quantity": float(abs(transaction.quantity)),
+            "unit_price": float(transaction.unit_price),
+            "gross_amount": float(transaction.gross_amount),
+            "fees": float(transaction.fees)
+        }
+    }
+
+
+@router.get("/assets")
+async def get_assets(db: Session = Depends(get_db)) -> list[dict]:
+    """Get list of all assets for transaction form dropdown."""
+    assets = db.query(Asset).all()
+    return [
+        {
+            "isin": a.isin,
+            "name": a.name,
+            "asset_type": a.asset_type.value
+        }
+        for a in assets
+    ]
