@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..models import get_db, Asset, Transaction, Holding, TransactionType
+from ..models import get_db, Asset, Transaction, Holding, TransactionType, IncomeEvent
 from ..schemas import HoldingResponse, TransactionResponse
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
@@ -155,3 +155,55 @@ async def get_portfolio_summary(db: Session = Depends(get_db)) -> dict:
         "assets_by_type": {c[0].value: c[1] for c in asset_counts},
         "total_transactions": trans_count
     }
+
+
+@router.get("/income")
+async def get_income_events(
+    db: Session = Depends(get_db),
+    income_type: Optional[str] = Query(None, description="Filter by type: interest, dividend, distribution"),
+    start_date: Optional[date] = Query(None, description="Start date"),
+    end_date: Optional[date] = Query(None, description="End date"),
+    limit: int = Query(100, le=1000),
+    offset: int = Query(0)
+) -> list[dict]:
+    """Get income events (dividends, interest, distributions)."""
+    query = db.query(IncomeEvent)
+
+    if income_type:
+        query = query.filter(IncomeEvent.income_type == income_type.lower())
+
+    if start_date:
+        query = query.filter(IncomeEvent.payment_date >= start_date)
+
+    if end_date:
+        query = query.filter(IncomeEvent.payment_date <= end_date)
+
+    events = query.order_by(
+        IncomeEvent.payment_date.desc()
+    ).offset(offset).limit(limit).all()
+
+    result = []
+    for e in events:
+        # Get asset name if linked
+        asset_name = None
+        asset_isin = None
+        if e.asset_id:
+            asset = db.query(Asset).filter(Asset.id == e.asset_id).first()
+            if asset:
+                asset_name = asset.name
+                asset_isin = asset.isin
+
+        result.append({
+            "id": e.id,
+            "income_type": e.income_type,
+            "payment_date": e.payment_date.isoformat(),
+            "gross_amount": float(e.gross_amount),
+            "withholding_tax": float(e.withholding_tax) if e.withholding_tax else 0,
+            "net_amount": float(e.net_amount),
+            "source_country": e.source_country,
+            "asset_name": asset_name,
+            "asset_isin": asset_isin,
+            "tax_treatment": "DIRT 33%" if e.income_type == "interest" else "Marginal Rate"
+        })
+
+    return result

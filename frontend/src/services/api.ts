@@ -183,3 +183,33 @@ export async function getDeemedDisposals(yearsAhead: number = 3): Promise<Array<
   if (!response.ok) throw new Error('Failed to fetch deemed disposals')
   return response.json()
 }
+
+export interface IncomeEvent {
+  id: number
+  income_type: string
+  payment_date: string
+  gross_amount: number
+  withholding_tax: number
+  net_amount: number
+  source_country: string | null
+  asset_name: string | null
+  asset_isin: string | null
+  tax_treatment: string
+}
+
+export async function getIncomeEvents(params?: {
+  income_type?: string
+  start_date?: string
+  end_date?: string
+  limit?: number
+}): Promise<IncomeEvent[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.income_type) searchParams.set('income_type', params.income_type)
+  if (params?.start_date) searchParams.set('start_date', params.start_date)
+  if (params?.end_date) searchParams.set('end_date', params.end_date)
+  if (params?.limit) searchParams.set('limit', params.limit.toString())
+
+  const response = await fetch(`${API_BASE}/portfolio/income?${searchParams}`)
+  if (!response.ok) throw new Error('Failed to fetch income events')
+  return response.json()
+}

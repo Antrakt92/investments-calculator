@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
-import { getHoldings, getTransactions, type Holding, type Transaction } from '../services/api'
+import { getHoldings, getTransactions, getIncomeEvents, type Holding, type Transaction, type IncomeEvent } from '../services/api'
 
 export default function Portfolio() {
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions'>('holdings')
+  const [incomeEvents, setIncomeEvents] = useState<IncomeEvent[]>([])
+  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions' | 'income'>('holdings')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | 'buy' | 'sell'>('all')
+  const [transFilter, setTransFilter] = useState<'all' | 'buy' | 'sell'>('all')
+  const [incomeFilter, setIncomeFilter] = useState<'all' | 'interest' | 'dividend'>('all')
 
   useEffect(() => {
     loadData()
@@ -16,12 +18,14 @@ export default function Portfolio() {
   async function loadData() {
     try {
       setLoading(true)
-      const [holdingsData, transactionsData] = await Promise.all([
+      const [holdingsData, transactionsData, incomeData] = await Promise.all([
         getHoldings(),
         getTransactions({ limit: 100 }),
+        getIncomeEvents({ limit: 100 }),
       ])
       setHoldings(holdingsData)
       setTransactions(transactionsData)
+      setIncomeEvents(incomeData)
     } catch (err) {
       setError('Failed to load portfolio data')
     } finally {
@@ -30,9 +34,23 @@ export default function Portfolio() {
   }
 
   const filteredTransactions = transactions.filter(t => {
-    if (filter === 'all') return true
-    return t.transaction_type === filter
+    if (transFilter === 'all') return true
+    return t.transaction_type === transFilter
   })
+
+  const filteredIncome = incomeEvents.filter(e => {
+    if (incomeFilter === 'all') return true
+    return e.income_type === incomeFilter
+  })
+
+  // Calculate income totals
+  const interestTotal = incomeEvents
+    .filter(e => e.income_type === 'interest')
+    .reduce((sum, e) => sum + e.gross_amount, 0)
+  const dividendTotal = incomeEvents
+    .filter(e => e.income_type === 'dividend' || e.income_type === 'distribution')
+    .reduce((sum, e) => sum + e.gross_amount, 0)
+  const withholdingTotal = incomeEvents.reduce((sum, e) => sum + e.withholding_tax, 0)
 
   if (loading) {
     return <div className="card">Loading...</div>
@@ -57,8 +75,15 @@ export default function Portfolio() {
         <button
           className={`btn ${activeTab === 'transactions' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('transactions')}
+          style={{ marginRight: '8px' }}
         >
           Transactions ({transactions.length})
+        </button>
+        <button
+          className={`btn ${activeTab === 'income' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('income')}
+        >
+          Income ({incomeEvents.length})
         </button>
       </div>
 
@@ -117,22 +142,22 @@ export default function Portfolio() {
         <div className="card">
           <div style={{ marginBottom: '16px' }}>
             <button
-              className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('all')}
+              className={`btn ${transFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setTransFilter('all')}
               style={{ marginRight: '8px' }}
             >
               All
             </button>
             <button
-              className={`btn ${filter === 'buy' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('buy')}
+              className={`btn ${transFilter === 'buy' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setTransFilter('buy')}
               style={{ marginRight: '8px' }}
             >
               Buys
             </button>
             <button
-              className={`btn ${filter === 'sell' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('sell')}
+              className={`btn ${transFilter === 'sell' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setTransFilter('sell')}
             >
               Sells
             </button>
@@ -197,6 +222,106 @@ export default function Portfolio() {
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {activeTab === 'income' && (
+        <div>
+          {/* Income Summary */}
+          <div className="stat-grid" style={{ marginBottom: '16px' }}>
+            <div className="stat-card">
+              <div className="stat-label">Interest (DIRT 33%)</div>
+              <div className="stat-value">{formatCurrency(interestTotal)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Dividends (Marginal Rate)</div>
+              <div className="stat-value">{formatCurrency(dividendTotal)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Withholding Tax Paid</div>
+              <div className="stat-value">{formatCurrency(withholdingTotal)}</div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                className={`btn ${incomeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setIncomeFilter('all')}
+                style={{ marginRight: '8px' }}
+              >
+                All
+              </button>
+              <button
+                className={`btn ${incomeFilter === 'interest' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setIncomeFilter('interest')}
+                style={{ marginRight: '8px' }}
+              >
+                Interest
+              </button>
+              <button
+                className={`btn ${incomeFilter === 'dividend' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setIncomeFilter('dividend')}
+              >
+                Dividends
+              </button>
+            </div>
+
+            {filteredIncome.length === 0 ? (
+              <p style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                No income events found.
+              </p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Source</th>
+                    <th>Gross Amount</th>
+                    <th>Withholding Tax</th>
+                    <th>Net Amount</th>
+                    <th>Tax Treatment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredIncome.map(event => (
+                    <tr key={event.id}>
+                      <td>{formatDate(event.payment_date)}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{event.income_type}</td>
+                      <td>
+                        {event.asset_name ? (
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{event.asset_name}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                              {event.asset_isin}
+                            </div>
+                          </div>
+                        ) : (
+                          <span>{event.source_country || 'Trade Republic'}</span>
+                        )}
+                      </td>
+                      <td>{formatCurrency(event.gross_amount)}</td>
+                      <td style={{ color: event.withholding_tax > 0 ? 'var(--danger)' : 'inherit' }}>
+                        {event.withholding_tax > 0 ? `-${formatCurrency(event.withholding_tax)}` : '€0.00'}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>{formatCurrency(event.net_amount)}</td>
+                      <td>
+                        <span
+                          className="tax-rate-badge"
+                          style={{
+                            background: event.income_type === 'interest' ? 'var(--primary)' : 'var(--warning)',
+                          }}
+                        >
+                          {event.tax_treatment}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
     </div>
