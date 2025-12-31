@@ -377,9 +377,6 @@ class TradeRepublicParser:
         text = page.extract_text() or ""
         lines = text.split("\n")
 
-        current_isin = None
-        current_name = None
-
         for line in lines:
             line = line.strip()
 
@@ -389,10 +386,11 @@ class TradeRepublicParser:
             # Format 3: US76954A1034 - Rivian Automotive, Inc.
             isin_match = re.match(r"^([A-Z]{2}[A-Z0-9]{10})[\s\-]+(.+)$", line)
             if isin_match:
-                current_isin = isin_match.group(1)
-                current_name = isin_match.group(2).strip()
+                # Store in instance variables to persist across pages
+                self.current_isin = isin_match.group(1)
+                self.current_name = isin_match.group(2).strip()
                 # Clean name - remove leading dash/spaces
-                current_name = current_name.lstrip("- ").strip()
+                self.current_name = self.current_name.lstrip("- ").strip()
                 continue
 
             # Parse transaction lines - multiple formats
@@ -409,7 +407,7 @@ class TradeRepublicParser:
             )
 
             if is_trade_line:
-                trans = self._parse_transaction_row(line, current_isin, current_name)
+                trans = self._parse_transaction_row(line, self.current_isin, self.current_name)
                 if trans and trans.market_value > Decimal("0"):
                     report.transactions.append(trans)
                 elif trans:
@@ -458,13 +456,14 @@ class TradeRepublicParser:
             else:
                 # Fallback for Section VII: extract numbers after the second date
                 # Format should be: ... DATE1 DATE2 EUR rate quantity value net
-                second_date_pos = line.find(dates[1]) + len(dates[1])
-                remainder = line[second_date_pos:]
+                # IMPORTANT: Use normalized_line (with commas removed) for number extraction
+                second_date_pos = normalized_line.find(dates[1]) + len(dates[1])
+                remainder = normalized_line[second_date_pos:]
 
                 # Remove currency codes
                 remainder = re.sub(r"(EUR|USD|GBP)", "", remainder)
 
-                # Find all numbers
+                # Find all numbers (including decimals)
                 numbers = re.findall(r"([-]?\d+\.?\d*)", remainder)
                 numbers = [n for n in numbers if n and n != "-" and n != "." and len(n) > 0]
 
