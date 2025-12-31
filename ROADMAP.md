@@ -30,6 +30,7 @@
 - [x] Delete individual transactions
 - [x] Transaction form with validation
 - [x] CSV export for transactions
+- [x] Print-friendly tax summary
 
 ---
 
@@ -51,7 +52,7 @@
 ### 1.3 Export Features
 - [ ] Export tax report as PDF
 - [x] Export transactions as CSV
-- [ ] Print-friendly tax summary
+- [x] Print-friendly tax summary
 
 ---
 

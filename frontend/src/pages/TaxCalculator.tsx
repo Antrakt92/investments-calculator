@@ -40,7 +40,7 @@ export default function TaxCalculator() {
       <h1 style={{ marginBottom: '24px' }}>Irish Tax Calculator - {taxYear}</h1>
 
       <div className="card">
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Tax Year</label>
             <select
@@ -67,6 +67,15 @@ export default function TaxCalculator() {
           <button className="btn btn-primary" onClick={calculate} disabled={loading}>
             {loading ? 'Calculating...' : 'Recalculate'}
           </button>
+          {result && (
+            <button
+              className="btn btn-secondary print-hide"
+              onClick={() => window.print()}
+              style={{ marginLeft: 'auto' }}
+            >
+              Print Tax Summary
+            </button>
+          )}
         </div>
       </div>
 

@@ -325,3 +325,96 @@ input[type="number"].form-input::-webkit-inner-spin-button {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Print Styles */
+@media print {
+  /* Hide navigation and buttons */
+  .nav,
+  .print-hide,
+  button,
+  select,
+  input {
+    display: none !important;
+  }
+
+  /* Reset colors for printing */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt !important;
+  }
+
+  .container {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 12pt !important;
+  }
+
+  .stat-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8pt !important;
+  }
+
+  .stat-card {
+    border: 1px solid #ccc !important;
+    padding: 8pt !important;
+  }
+
+  .stat-value {
+    font-size: 14pt !important;
+  }
+
+  .stat-value.negative {
+    color: #c00 !important;
+  }
+
+  .tax-section {
+    background: #f5f5f5 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .table th {
+    background: #eee !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .tax-rate-badge {
+    background: #333 !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .alert {
+    border: 1px solid #999 !important;
+    background: #f9f9f9 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Page breaks */
+  h1 {
+    page-break-before: avoid !important;
+  }
+
+  .tax-section-title {
+    page-break-after: avoid !important;
+  }
+
+  /* Print header */
+  h1::after {
+    content: " - Tax Summary";
+    font-size: 14pt;
+    font-weight: normal;
+    color: #666;
+  }
+}
