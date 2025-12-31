@@ -31,6 +31,10 @@
 - [x] Transaction form with validation
 - [x] CSV export for transactions
 - [x] Print-friendly tax summary
+- [x] Automatic CGT loss carry forward between years
+- [x] PDF export for tax reports
+- [x] Transaction notes/comments
+- [x] Improved loading states
 
 ---
 
@@ -47,10 +51,10 @@
 - [ ] Validate parsed data against PDF totals
 - [ ] Show warnings for suspicious data
 - [ ] Allow manual corrections
-- [ ] Transaction notes/comments
+- [x] Transaction notes/comments
 
-### 1.3 Export Features
-- [ ] Export tax report as PDF
+### 1.3 Export Features ✅ COMPLETE
+- [x] Export tax report as PDF
 - [x] Export transactions as CSV
 - [x] Print-friendly tax summary
 
@@ -60,7 +64,7 @@
 
 ### 2.1 Multi-Year Support
 - [ ] View historical data by year
-- [ ] Carry forward CGT losses automatically
+- [x] Carry forward CGT losses automatically
 - [ ] Year-over-year comparison
 - [ ] Tax history
 
@@ -132,7 +136,7 @@
 
 ### UI/UX
 - [ ] Fix dashboard layout on small screens
-- [ ] Add loading states to all async operations
+- [x] Add loading states to all async operations
 - [ ] Better error messages
 
 ---

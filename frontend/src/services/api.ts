@@ -60,6 +60,7 @@ export interface Transaction {
   fees: number
   net_amount: number
   realized_gain_loss: number | null
+  notes: string | null
 }
 
 export interface TaxResult {
@@ -254,6 +255,7 @@ export interface TransactionCreate {
   quantity: number
   unit_price: number
   fees?: number
+  notes?: string
 }
 
 export interface AssetInfo {
@@ -301,6 +303,7 @@ export interface TransactionUpdate {
   quantity?: number
   unit_price?: number
   fees?: number
+  notes?: string
 }
 
 export async function updateTransaction(

@@ -55,7 +55,33 @@ export default function Dashboard() {
     .reduce((sum, e) => sum + e.gross_amount, 0)
 
   if (loading) {
-    return <div className="card">Loading...</div>
+    return (
+      <div>
+        <h1 style={{ marginBottom: '24px' }}>Dashboard - Tax Year {taxYear}</h1>
+        <div className="stat-grid">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="stat-card" style={{ opacity: 0.6 }}>
+              <div style={{ width: '60%', height: '14px', background: 'var(--bg-secondary)', borderRadius: '4px' }}></div>
+              <div style={{ width: '80%', height: '32px', background: 'var(--bg-secondary)', borderRadius: '4px', marginTop: '12px' }}></div>
+              <div style={{ width: '90%', height: '12px', background: 'var(--bg-secondary)', borderRadius: '4px', marginTop: '8px' }}></div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>
+          <div className="card" style={{ opacity: 0.6 }}>
+            <div style={{ width: '50%', height: '20px', background: 'var(--bg-secondary)', borderRadius: '4px', marginBottom: '16px' }}></div>
+            <div style={{ width: '100%', height: '100px', background: 'var(--bg-secondary)', borderRadius: '4px' }}></div>
+          </div>
+          <div className="card" style={{ opacity: 0.6 }}>
+            <div style={{ width: '50%', height: '20px', background: 'var(--bg-secondary)', borderRadius: '4px', marginBottom: '16px' }}></div>
+            <div style={{ width: '100%', height: '100px', background: 'var(--bg-secondary)', borderRadius: '4px' }}></div>
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+          Loading dashboard data...
+        </div>
+      </div>
+    )
   }
 
   if (error) {

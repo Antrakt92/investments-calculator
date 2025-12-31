@@ -41,6 +41,7 @@ export default function Portfolio() {
     quantity: 0,
     unit_price: 0,
     fees: 0,
+    notes: '',
   })
 
   useEffect(() => {
@@ -102,6 +103,7 @@ export default function Portfolio() {
           quantity: formData.quantity,
           unit_price: formData.unit_price,
           fees: formData.fees,
+          notes: formData.notes,
         }
         const result = await updateTransaction(editingTransaction.id, updateData)
         setFormSuccess(result.message)
@@ -136,6 +138,7 @@ export default function Portfolio() {
       quantity: 0,
       unit_price: 0,
       fees: 0,
+      notes: '',
     })
     setEditingTransaction(null)
   }
@@ -150,6 +153,7 @@ export default function Portfolio() {
       quantity: trans.quantity,
       unit_price: trans.unit_price,
       fees: trans.fees,
+      notes: trans.notes || '',
     })
     setShowForm(true)
     setFormError(null)
@@ -507,6 +511,26 @@ export default function Portfolio() {
                   </div>
                 </div>
 
+                {/* Notes field */}
+                <div style={{ marginTop: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                    Notes (optional)
+                  </label>
+                  <textarea
+                    className="form-input"
+                    placeholder="Add any notes about this transaction..."
+                    value={formData.notes || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      minHeight: '60px',
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+
                 {/* Preview */}
                 {formData.quantity > 0 && formData.unit_price > 0 && (
                   <div style={{
@@ -582,6 +606,16 @@ export default function Portfolio() {
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {trans.isin}
                       </div>
+                      {trans.notes && (
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'var(--primary)',
+                          fontStyle: 'italic',
+                          marginTop: '2px'
+                        }}>
+                          {trans.notes.length > 50 ? trans.notes.substring(0, 50) + '...' : trans.notes}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span

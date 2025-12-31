@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { calculateTax, getDeemedDisposals, getLossesCarryForward, type TaxResult } from '../services/api'
+import { exportTaxReportPDF } from '../utils/pdfExport'
 
 export default function TaxCalculator() {
   // Default to 2024 (most recent complete tax year)
@@ -111,21 +112,69 @@ export default function TaxCalculator() {
             {loading ? 'Calculating...' : 'Recalculate'}
           </button>
           {result && (
-            <button
-              className="btn btn-secondary print-hide"
-              onClick={() => window.print()}
-              style={{ marginLeft: 'auto' }}
-            >
-              Print Tax Summary
-            </button>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+              <button
+                className="btn btn-primary print-hide"
+                onClick={() => exportTaxReportPDF(result, lossesCarriedForward)}
+              >
+                Download PDF
+              </button>
+              <button
+                className="btn btn-secondary print-hide"
+                onClick={() => window.print()}
+              >
+                Print
+              </button>
+            </div>
           )}
         </div>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
 
+      {loading && !result && (
+        <div style={{ marginTop: '24px' }}>
+          <div className="stat-grid">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="stat-card" style={{ opacity: 0.6 }}>
+                <div className="stat-label" style={{ width: '60%', height: '14px', background: 'var(--bg-secondary)', borderRadius: '4px' }}></div>
+                <div style={{ width: '80%', height: '28px', background: 'var(--bg-secondary)', borderRadius: '4px', marginTop: '8px' }}></div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+            Calculating taxes for {taxYear}...
+          </div>
+        </div>
+      )}
+
       {result && (
-        <>
+        <div style={{ position: 'relative' }}>
+          {loading && (
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(255,255,255,0.7)',
+              zIndex: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '8px'
+            }}>
+              <div style={{
+                background: 'var(--bg-white)',
+                padding: '16px 24px',
+                borderRadius: '8px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                color: 'var(--text-primary)'
+              }}>
+                Recalculating...
+              </div>
+            </div>
+          )}
           {/* Summary Cards */}
           <div className="stat-grid" style={{ marginTop: '24px' }}>
             <div className="stat-card">
@@ -509,7 +558,7 @@ export default function TaxCalculator() {
               </table>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   )

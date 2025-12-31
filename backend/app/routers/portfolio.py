@@ -27,6 +27,7 @@ class TransactionCreate(BaseModel):
     quantity: float
     unit_price: float
     fees: float = 0
+    notes: Optional[str] = None
 
 
 class TransactionUpdate(BaseModel):
@@ -35,6 +36,7 @@ class TransactionUpdate(BaseModel):
     quantity: Optional[float] = None
     unit_price: Optional[float] = None
     fees: Optional[float] = None
+    notes: Optional[str] = None
 
 
 @router.get("/holdings")
@@ -156,7 +158,8 @@ async def get_transactions(
             "gross_amount": float(t.gross_amount),
             "fees": float(t.fees),
             "net_amount": float(t.net_amount),
-            "realized_gain_loss": realized_gl
+            "realized_gain_loss": realized_gl,
+            "notes": t.notes
         })
 
     return result
@@ -280,7 +283,8 @@ async def create_transaction(
         net_amount=net_amount,
         currency="EUR",
         exchange_rate=Decimal("1.0000"),
-        amount_eur=gross_amount
+        amount_eur=gross_amount,
+        notes=data.notes
     )
     db.add(transaction)
     db.commit()
@@ -298,7 +302,8 @@ async def create_transaction(
             "quantity": float(quantity),
             "unit_price": float(unit_price),
             "gross_amount": float(gross_amount),
-            "fees": float(fees)
+            "fees": float(fees),
+            "notes": data.notes
         }
     }
 
@@ -333,7 +338,8 @@ async def export_transactions_csv(
         "Unit Price (EUR)",
         "Gross Amount (EUR)",
         "Fees (EUR)",
-        "Net Amount (EUR)"
+        "Net Amount (EUR)",
+        "Notes"
     ])
 
     # Data rows
@@ -347,7 +353,8 @@ async def export_transactions_csv(
             float(t.unit_price),
             float(t.gross_amount),
             float(t.fees),
-            float(t.net_amount)
+            float(t.net_amount),
+            t.notes or ""
         ])
 
     output.seek(0)
@@ -421,6 +428,9 @@ async def update_transaction(
         else:
             transaction.net_amount = transaction.gross_amount + transaction.fees
 
+    if data.notes is not None:
+        transaction.notes = data.notes
+
     db.commit()
     db.refresh(transaction)
 
@@ -433,7 +443,8 @@ async def update_transaction(
             "quantity": float(abs(transaction.quantity)),
             "unit_price": float(transaction.unit_price),
             "gross_amount": float(transaction.gross_amount),
-            "fees": float(transaction.fees)
+            "fees": float(transaction.fees),
+            "notes": transaction.notes
         }
     }
 
