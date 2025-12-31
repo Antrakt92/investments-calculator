@@ -37,15 +37,17 @@
 - [x] Transaction notes/comments
 - [x] Dark mode toggle
 - [x] Robust PDF parsing (European decimals, concatenated numbers)
+- [x] Unit tests (45 tests: CGT, Exit Tax, parser)
+- [x] Deemed disposal tracking with time remaining and urgency alerts
 
 ---
 
 ## Phase 1: Core Improvements (Current Sprint)
 
-### 1.1 Unit Tests ⬅️ NEXT
-- [ ] Tests for Trade Republic PDF parser
-- [ ] Tests for CGT calculator (FIFO matching, 4-week rule)
-- [ ] Tests for Exit Tax calculator
+### 1.1 Unit Tests ✅ DONE
+- [x] Tests for Trade Republic PDF parser (regex patterns, number normalization)
+- [x] Tests for CGT calculator (19 tests: FIFO matching, 4-week rule, same-day)
+- [x] Tests for Exit Tax calculator (26 tests: FIFO, loss offsetting, deemed disposal)
 - [ ] Tests for API endpoints
 - [ ] CI/CD pipeline with test automation
 
@@ -55,12 +57,13 @@
 - [ ] Highlight potential parsing errors
 - [ ] Allow manual corrections inline
 
-### 1.3 Deemed Disposal (8-Year Rule)
-- [ ] Track purchase dates for all EU ETF holdings
-- [ ] Calculate deemed disposal dates (8 years from purchase)
-- [ ] Show upcoming deemed disposal calendar
-- [ ] Calculate deemed disposal tax liability
-- [ ] Warning notifications for approaching dates
+### 1.3 Deemed Disposal (8-Year Rule) ✅ DONE
+- [x] Track purchase dates for all EU ETF holdings
+- [x] Calculate deemed disposal dates (8 years from purchase)
+- [x] Show upcoming deemed disposal calendar with time remaining
+- [x] Calculate deemed disposal tax liability (estimated tax column)
+- [x] Warning notifications for approaching dates (urgency colors)
+- [x] Dashboard widget for quick overview
 
 ---
 
@@ -203,21 +206,23 @@
 
 ## Priority Matrix
 
-| Feature | Impact | Effort | Priority |
-|---------|--------|--------|----------|
-| Unit Tests | High | Medium | **P0** |
-| Family/Joint Returns | High | High | **P1** |
-| Deemed Disposal Tracking | High | Medium | **P1** |
-| Multi-Year Support | Medium | Medium | **P2** |
-| Tax Optimization Tools | Medium | High | **P3** |
-| Multiple Brokers | High | Very High | **Backlog** |
-| Portfolio Analytics | Low | High | **Backlog** |
+| Feature | Impact | Effort | Priority | Status |
+|---------|--------|--------|----------|--------|
+| Unit Tests | High | Medium | **P0** | ✅ Done |
+| Deemed Disposal Tracking | High | Medium | **P1** | ✅ Done |
+| Family/Joint Returns | High | High | **P1** | Next |
+| Data Validation | Medium | Medium | **P1** | Pending |
+| Multi-Year Support | Medium | Medium | **P2** | Pending |
+| Tax Optimization Tools | Medium | High | **P3** | Pending |
+| Multiple Brokers | High | Very High | **Backlog** | Pending |
+| Portfolio Analytics | Low | High | **Backlog** | Pending |
 
 ---
 
 ## Next Actions
 
-1. **Now**: Add unit tests for parser and calculators
-2. **Next**: Implement Family/Joint returns
-3. **Then**: Deemed Disposal tracking
-4. **Later**: Multi-year support
+1. ~~**Now**: Add unit tests for parser and calculators~~ ✅
+2. ~~**Then**: Deemed Disposal tracking~~ ✅
+3. **Now**: Implement Family/Joint returns
+4. **Next**: Data validation and error handling
+5. **Later**: Multi-year support
