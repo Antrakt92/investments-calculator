@@ -303,3 +303,67 @@ async def get_deemed_disposals(
         }
         for d in upcoming
     ]
+
+
+@router.get("/losses-to-carry-forward/{from_year}")
+async def get_losses_to_carry_forward(
+    from_year: int,
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Get CGT losses that should be carried forward from a specific year.
+
+    This calculates the losses from the specified year that can be used
+    to offset gains in future years.
+    """
+    # Initialize CGT calculator
+    cgt_calc = IrishCGTCalculator()
+
+    # Get all non-Exit Tax transactions up to and including the specified year
+    transactions = db.query(Transaction).join(Asset).filter(
+        Transaction.transaction_date <= date(from_year, 12, 31)
+    ).order_by(Transaction.transaction_date).all()
+
+    # Process transactions
+    for trans in transactions:
+        asset = trans.asset
+        is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(asset.isin, asset.name)
+
+        # Only process non-Exit Tax assets for CGT
+        if is_exit_tax:
+            continue
+
+        if trans.transaction_type == TransactionType.BUY:
+            qty = abs(trans.quantity)
+            unit_cost = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            acq = Acquisition(
+                date=trans.transaction_date,
+                isin=asset.isin,
+                quantity=qty,
+                unit_cost=unit_cost,
+                total_cost=trans.gross_amount
+            )
+            cgt_calc.add_acquisition(asset.isin, acq)
+
+        elif trans.transaction_type == TransactionType.SELL:
+            qty = abs(trans.quantity)
+            unit_price = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            disposal = Disposal(
+                date=trans.transaction_date,
+                isin=asset.isin,
+                quantity=qty,
+                unit_price=unit_price,
+                proceeds=trans.gross_amount
+            )
+            cgt_calc.process_disposal(disposal)
+
+    # Calculate tax for the year (with no carried forward losses to get raw losses)
+    cgt_result = cgt_calc.calculate_tax(from_year, losses_brought_forward=Decimal("0"))
+
+    return {
+        "from_year": from_year,
+        "losses_to_carry_forward": float(cgt_result.losses_to_carry_forward),
+        "total_gains": float(cgt_result.total_gains),
+        "total_losses": float(cgt_result.total_losses),
+        "net_gain_loss": float(cgt_result.net_gain_loss)
+    }

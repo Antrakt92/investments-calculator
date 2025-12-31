@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { calculateTax, getDeemedDisposals, type TaxResult } from '../services/api'
+import { calculateTax, getDeemedDisposals, getLossesCarryForward, type TaxResult } from '../services/api'
 
 export default function TaxCalculator() {
   // Default to 2024 (most recent complete tax year)
   const [taxYear, setTaxYear] = useState(2024)
   const [lossesCarriedForward, setLossesCarriedForward] = useState(0)
+  const [lossesAutoLoaded, setLossesAutoLoaded] = useState(false)
   const [result, setResult] = useState<TaxResult | null>(null)
   const [deemedDisposals, setDeemedDisposals] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -27,10 +28,32 @@ export default function TaxCalculator() {
     }
   }
 
-  // Auto-calculate when year or losses change
+  // Fetch losses from previous year when year changes
+  useEffect(() => {
+    async function fetchPreviousYearLosses() {
+      try {
+        const previousYear = taxYear - 1
+        const lossData = await getLossesCarryForward(previousYear)
+        if (lossData.losses_to_carry_forward > 0) {
+          setLossesCarriedForward(lossData.losses_to_carry_forward)
+          setLossesAutoLoaded(true)
+        } else {
+          setLossesCarriedForward(0)
+          setLossesAutoLoaded(false)
+        }
+      } catch {
+        // If fetching fails, just reset to 0
+        setLossesCarriedForward(0)
+        setLossesAutoLoaded(false)
+      }
+    }
+    fetchPreviousYearLosses()
+  }, [taxYear])
+
+  // Auto-calculate when losses change (year change triggers loss fetch which triggers this)
   useEffect(() => {
     calculate()
-  }, [taxYear, lossesCarriedForward])
+  }, [lossesCarriedForward])
 
   // Calculate Exit Tax net
   const exitNetGain = result ? result.exit_tax.gains - result.exit_tax.losses : 0
@@ -55,12 +78,22 @@ export default function TaxCalculator() {
             </select>
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">CGT Losses Carried Forward</label>
+            <label className="form-label">
+              CGT Losses Carried Forward
+              {lossesAutoLoaded && (
+                <span style={{ fontSize: '11px', color: 'var(--success)', marginLeft: '8px' }}>
+                  (auto-loaded from {taxYear - 1})
+                </span>
+              )}
+            </label>
             <input
               type="number"
               className="form-input"
               value={lossesCarriedForward}
-              onChange={e => setLossesCarriedForward(Number(e.target.value))}
+              onChange={e => {
+                setLossesCarriedForward(Number(e.target.value))
+                setLossesAutoLoaded(false)
+              }}
               style={{ width: '150px' }}
             />
           </div>

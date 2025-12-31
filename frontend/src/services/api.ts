@@ -324,3 +324,17 @@ export async function exportTransactionsCSV(): Promise<Blob> {
   if (!response.ok) throw new Error('Failed to export transactions')
   return response.blob()
 }
+
+export interface LossesCarryForward {
+  from_year: number
+  losses_to_carry_forward: number
+  total_gains: number
+  total_losses: number
+  net_gain_loss: number
+}
+
+export async function getLossesCarryForward(fromYear: number): Promise<LossesCarryForward> {
+  const response = await fetch(`${API_BASE}/tax/losses-to-carry-forward/${fromYear}`)
+  if (!response.ok) throw new Error('Failed to fetch losses')
+  return response.json()
+}
