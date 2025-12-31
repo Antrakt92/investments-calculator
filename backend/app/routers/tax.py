@@ -54,7 +54,9 @@ async def calculate_tax(
 
         if trans.transaction_type == TransactionType.BUY:
             qty = abs(trans.quantity)
-            unit_cost = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            # Include fees in cost basis (allowable cost for CGT)
+            total_cost_with_fees = trans.gross_amount + trans.fees
+            unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
 
             if is_exit_tax:
                 exit_calc.add_acquisition(
@@ -70,13 +72,15 @@ async def calculate_tax(
                     isin=asset.isin,
                     quantity=qty,
                     unit_cost=unit_cost,
-                    total_cost=trans.gross_amount
+                    total_cost=total_cost_with_fees
                 )
                 cgt_calc.add_acquisition(asset.isin, acq)
 
         elif trans.transaction_type == TransactionType.SELL:
             qty = abs(trans.quantity)
-            unit_price = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            # Deduct fees from proceeds (net amount received)
+            proceeds_after_fees = trans.gross_amount - trans.fees
+            unit_price = proceeds_after_fees / qty if qty > 0 else Decimal("0")
 
             if is_exit_tax:
                 # Collect the disposals for Exit Tax calculation
@@ -93,7 +97,8 @@ async def calculate_tax(
                     isin=asset.isin,
                     quantity=qty,
                     unit_price=unit_price,
-                    proceeds=trans.gross_amount
+                    proceeds=proceeds_after_fees,
+                    fees=trans.fees
                 )
                 cgt_calc.process_disposal(disposal)
 
@@ -335,25 +340,30 @@ async def get_losses_to_carry_forward(
 
         if trans.transaction_type == TransactionType.BUY:
             qty = abs(trans.quantity)
-            unit_cost = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            # Include fees in cost basis
+            total_cost_with_fees = trans.gross_amount + trans.fees
+            unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
             acq = Acquisition(
                 date=trans.transaction_date,
                 isin=asset.isin,
                 quantity=qty,
                 unit_cost=unit_cost,
-                total_cost=trans.gross_amount
+                total_cost=total_cost_with_fees
             )
             cgt_calc.add_acquisition(asset.isin, acq)
 
         elif trans.transaction_type == TransactionType.SELL:
             qty = abs(trans.quantity)
-            unit_price = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            # Deduct fees from proceeds
+            proceeds_after_fees = trans.gross_amount - trans.fees
+            unit_price = proceeds_after_fees / qty if qty > 0 else Decimal("0")
             disposal = Disposal(
                 date=trans.transaction_date,
                 isin=asset.isin,
                 quantity=qty,
                 unit_price=unit_price,
-                proceeds=trans.gross_amount
+                proceeds=proceeds_after_fees,
+                fees=trans.fees
             )
             cgt_calc.process_disposal(disposal)
 

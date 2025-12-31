@@ -265,7 +265,9 @@ async def create_transaction(
     unit_price = Decimal(str(data.unit_price))
     fees = Decimal(str(data.fees))
     gross_amount = quantity * unit_price
-    net_amount = gross_amount - fees if data.transaction_type == "buy" else gross_amount + fees
+    # BUY: net_amount = gross + fees (total cost to you)
+    # SELL: net_amount = gross - fees (net proceeds you receive)
+    net_amount = gross_amount + fees if data.transaction_type == "buy" else gross_amount - fees
 
     # Create transaction
     trans_type = TransactionType.BUY if data.transaction_type == "buy" else TransactionType.SELL
@@ -422,11 +424,13 @@ async def update_transaction(
         transaction.fees = Decimal(str(data.fees))
 
     # Always recalculate net amount if any amount field changed
+    # BUY: net_amount = gross + fees (total cost)
+    # SELL: net_amount = gross - fees (net proceeds)
     if data.quantity is not None or data.unit_price is not None or data.fees is not None:
         if transaction.transaction_type == TransactionType.BUY:
-            transaction.net_amount = transaction.gross_amount - transaction.fees
-        else:
             transaction.net_amount = transaction.gross_amount + transaction.fees
+        else:
+            transaction.net_amount = transaction.gross_amount - transaction.fees
 
     if data.notes is not None:
         transaction.notes = data.notes

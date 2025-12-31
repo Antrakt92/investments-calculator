@@ -216,6 +216,80 @@ async def clear_all_data(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
 
 
+@router.post("/debug-pdf")
+async def debug_pdf(file: UploadFile = File(...)):
+    """
+    Debug endpoint: Parse PDF and return raw extracted data without saving.
+    Useful for diagnosing parsing issues.
+    """
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    try:
+        parser = TradeRepublicParser()
+        parsed = parser.parse(tmp_path)
+
+        # Return detailed debug info
+        return {
+            "success": True,
+            "metadata": {
+                "client_id": parsed.client_id,
+                "period_start": parsed.period_start.isoformat(),
+                "period_end": parsed.period_end.isoformat(),
+                "currency": parsed.currency,
+                "country": parsed.country
+            },
+            "transactions": [
+                {
+                    "isin": t.isin,
+                    "name": t.name,
+                    "type": t.transaction_type,
+                    "date": t.transaction_date.isoformat(),
+                    "quantity": float(t.quantity),
+                    "market_value": float(t.market_value),
+                    "net_amount": float(t.net_amount),
+                    "exchange_rate": float(t.exchange_rate),
+                    "asset_type": t.asset_type
+                }
+                for t in parsed.transactions
+            ],
+            "income_events": [
+                {
+                    "isin": i.isin,
+                    "name": i.name,
+                    "type": i.income_type,
+                    "date": i.payment_date.isoformat(),
+                    "gross_amount": float(i.gross_amount),
+                    "net_amount": float(i.net_amount),
+                    "withholding_tax": float(i.withholding_tax),
+                    "country": i.country
+                }
+                for i in parsed.income_events
+            ],
+            "summary": {
+                "total_transactions": len(parsed.transactions),
+                "total_income_events": len(parsed.income_events),
+                "transactions_by_type": {
+                    "buy": sum(1 for t in parsed.transactions if t.transaction_type == "buy"),
+                    "sell": sum(1 for t in parsed.transactions if t.transaction_type == "sell")
+                },
+                "income_by_type": {
+                    "interest": sum(1 for i in parsed.income_events if i.income_type.lower() == "interest"),
+                    "dividend": sum(1 for i in parsed.income_events if i.income_type.lower() in ["dividend", "distribution"])
+                }
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parsing PDF: {str(e)}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 def _determine_asset_type(isin: str, name: str) -> AssetType:
     """Determine asset type for Irish tax purposes."""
     from ..services.exit_tax_calculator import ExitTaxCalculator

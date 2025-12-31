@@ -35,6 +35,7 @@
 - [x] PDF export for tax reports
 - [x] Transaction notes/comments
 - [x] Improved loading states
+- [x] Dark mode toggle
 
 ---
 
@@ -92,7 +93,7 @@
 
 ### 3.1 User Experience
 - [ ] Mobile-responsive design
-- [ ] Dark mode
+- [x] Dark mode
 - [ ] Keyboard shortcuts
 - [ ] Tooltips and help text
 
