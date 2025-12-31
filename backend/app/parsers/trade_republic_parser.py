@@ -437,10 +437,19 @@ class TradeRepublicParser:
             settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date()
 
             # Normalize the line for number extraction
-            # Handle thousand separators: 2,146.00 -> 2146.00
             normalized_line = line
+
+            # 1. Handle thousand separators: 4,067.75 -> 4067.75
             normalized_line = re.sub(r'(\d),(\d{3})(?![0-9])', r'\1\2', normalized_line)
             normalized_line = re.sub(r'(\d)\s+(\d{3})(?!\d)', r'\1\2', normalized_line)
+
+            # 2. Handle European decimal format: 7,00 -> 7.00 (comma as decimal separator)
+            normalized_line = re.sub(r'(\d),(\d{1,2})(?!\d)', r'\1.\2', normalized_line)
+
+            # 3. Fix concatenated numbers: "1.0000342.0000" -> "1.0000 342.0000"
+            # This happens when PDF extraction drops spaces between numbers
+            # Pattern: digit sequence ending in .0000 followed immediately by another number
+            normalized_line = re.sub(r'(\d\.\d{4})(\d{1,3}\.\d)', r'\1 \2', normalized_line)
 
             # Section VII format: Trading Buy/Sell DATE1 DATE2 EUR rate quantity market_value net_amount
             # Example: Trading Buy 02.05.2024 06.05.2024 EUR 1.0000 0.0408 4.47 0.00
