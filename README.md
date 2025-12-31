@@ -168,15 +168,27 @@ python -m pytest tests/ --cov=app --cov-report=html
 
 ## 📋 Form 11 Guidance
 
-The calculator provides mappings to Revenue Form 11 fields:
+# Run development server
+npm run dev
+```
+```
+# В терминале с бэкендом нажмите Ctrl+C чтобы остановить сервер
 
-| Form 11 Section | What to Report |
-|-----------------|----------------|
-| **Panel D** | Deposit Interest (DIRT) |
-| **Panel E** | Capital Gains, Exit Tax on funds |
-| **Panel F** | Foreign Dividends |
+# Обновите код
+cd C:\Users\dimon\Documents\GitHub\investments-calculator
+git pull
 
----
+# Удалите старую базу данных (чтобы начать заново)
+Remove-Item -Force data\irish_tax.db -ErrorAction SilentlyContinue
+
+# Перезапустите бэкенд
+cd backend
+venv\Scripts\activate
+python -m uvicorn app.main:app --reload --port 8000
+
+The frontend will be available at http://localhost:3000 and will proxy API requests to the backend.
+```
+## API Endpoints
 
 ## ⚠️ Important Notes
 
@@ -219,4 +231,5 @@ This tool is for **informational purposes only**. Always consult a qualified tax
 
 ## 📝 License
 
-MIT License - See LICENSE file for details.
+This tool is for informational purposes only. Always consult a tax professional for your specific situation. The calculations may not account for all tax rules and exemptions.
+
