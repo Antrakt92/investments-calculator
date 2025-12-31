@@ -113,6 +113,7 @@ class TradeRepublicParser:
             self._parse_income_section(full_text, report)
 
             # Parse Section VII - Transactions
+            # We use text parsing as primary method since regex patterns work reliably
             in_transaction_section = False
             for page in pdf.pages:
                 text = page.extract_text() or ""
@@ -122,12 +123,8 @@ class TradeRepublicParser:
                     in_transaction_section = True
 
                 if in_transaction_section:
-                    # Try table extraction first (more reliable for structured data)
-                    table_trans_count = self._parse_transactions_from_tables(page, report)
-
-                    # If no transactions found via table extraction, fall back to text parsing
-                    if table_trans_count == 0:
-                        self._parse_transactions_table(page, report)
+                    # Use text-based parsing - more reliable for this PDF format
+                    self._parse_transactions_table(page, report)
 
         # Log parsing summary
         print(f"Parsed {len(report.transactions)} transactions, {len(report.income_events)} income events")
