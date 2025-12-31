@@ -303,6 +303,64 @@ async def create_transaction(
     }
 
 
+@router.get("/transactions/export/csv")
+async def export_transactions_csv(
+    db: Session = Depends(get_db),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None)
+) -> StreamingResponse:
+    """Export all transactions as CSV."""
+    query = db.query(Transaction).join(Asset)
+
+    if start_date:
+        query = query.filter(Transaction.transaction_date >= start_date)
+    if end_date:
+        query = query.filter(Transaction.transaction_date <= end_date)
+
+    transactions = query.order_by(Transaction.transaction_date.desc()).all()
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    writer.writerow([
+        "Date",
+        "ISIN",
+        "Asset Name",
+        "Type",
+        "Quantity",
+        "Unit Price (EUR)",
+        "Gross Amount (EUR)",
+        "Fees (EUR)",
+        "Net Amount (EUR)"
+    ])
+
+    # Data rows
+    for t in transactions:
+        writer.writerow([
+            t.transaction_date.isoformat(),
+            t.asset.isin,
+            t.asset.name,
+            t.transaction_type.value.upper(),
+            float(abs(t.quantity)),
+            float(t.unit_price),
+            float(t.gross_amount),
+            float(t.fees),
+            float(t.net_amount)
+        ])
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=transactions_{date.today().isoformat()}.csv"
+        }
+    )
+
+
 @router.delete("/transactions/{transaction_id}")
 async def delete_transaction(
     transaction_id: int,
@@ -389,61 +447,3 @@ async def get_assets(db: Session = Depends(get_db)) -> list[dict]:
         }
         for a in assets
     ]
-
-
-@router.get("/transactions/export/csv")
-async def export_transactions_csv(
-    db: Session = Depends(get_db),
-    start_date: Optional[date] = Query(None),
-    end_date: Optional[date] = Query(None)
-) -> StreamingResponse:
-    """Export all transactions as CSV."""
-    query = db.query(Transaction).join(Asset)
-
-    if start_date:
-        query = query.filter(Transaction.transaction_date >= start_date)
-    if end_date:
-        query = query.filter(Transaction.transaction_date <= end_date)
-
-    transactions = query.order_by(Transaction.transaction_date.desc()).all()
-
-    # Create CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header
-    writer.writerow([
-        "Date",
-        "ISIN",
-        "Asset Name",
-        "Type",
-        "Quantity",
-        "Unit Price (EUR)",
-        "Gross Amount (EUR)",
-        "Fees (EUR)",
-        "Net Amount (EUR)"
-    ])
-
-    # Data rows
-    for t in transactions:
-        writer.writerow([
-            t.transaction_date.isoformat(),
-            t.asset.isin,
-            t.asset.name,
-            t.transaction_type.value.upper(),
-            float(abs(t.quantity)),
-            float(t.unit_price),
-            float(t.gross_amount),
-            float(t.fees),
-            float(t.net_amount)
-        ])
-
-    output.seek(0)
-
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=transactions_{date.today().isoformat()}.csv"
-        }
-    )
