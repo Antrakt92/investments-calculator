@@ -6,11 +6,14 @@ import {
   getAssets,
   createTransaction,
   deleteTransaction,
+  updateTransaction,
+  exportTransactionsCSV,
   type Holding,
   type Transaction,
   type IncomeEvent,
   type AssetInfo,
-  type TransactionCreate
+  type TransactionCreate,
+  type TransactionUpdate
 } from '../services/api'
 
 export default function Portfolio() {
@@ -29,6 +32,7 @@ export default function Portfolio() {
   const [formLoading, setFormLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [formData, setFormData] = useState<TransactionCreate>({
     isin: '',
     name: '',
@@ -69,13 +73,15 @@ export default function Portfolio() {
     setFormSuccess(null)
 
     // Validation
-    if (!formData.isin.trim()) {
-      setFormError('ISIN is required')
-      return
-    }
-    if (!formData.name.trim()) {
-      setFormError('Asset name is required')
-      return
+    if (!editingTransaction) {
+      if (!formData.isin.trim()) {
+        setFormError('ISIN is required')
+        return
+      }
+      if (!formData.name.trim()) {
+        setFormError('Asset name is required')
+        return
+      }
     }
     if (formData.quantity <= 0) {
       setFormError('Quantity must be greater than 0')
@@ -88,18 +94,25 @@ export default function Portfolio() {
 
     try {
       setFormLoading(true)
-      const result = await createTransaction(formData)
-      setFormSuccess(result.message)
+
+      if (editingTransaction) {
+        // Update existing transaction
+        const updateData: TransactionUpdate = {
+          transaction_date: formData.transaction_date,
+          quantity: formData.quantity,
+          unit_price: formData.unit_price,
+          fees: formData.fees,
+        }
+        const result = await updateTransaction(editingTransaction.id, updateData)
+        setFormSuccess(result.message)
+      } else {
+        // Create new transaction
+        const result = await createTransaction(formData)
+        setFormSuccess(result.message)
+      }
+
       // Reset form
-      setFormData({
-        isin: '',
-        name: '',
-        transaction_type: 'buy',
-        transaction_date: new Date().toISOString().split('T')[0],
-        quantity: 0,
-        unit_price: 0,
-        fees: 0,
-      })
+      resetForm()
       // Reload data
       await loadData()
       // Close form after short delay
@@ -108,9 +121,54 @@ export default function Portfolio() {
         setFormSuccess(null)
       }, 1500)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to create transaction')
+      setFormError(err instanceof Error ? err.message : 'Failed to save transaction')
     } finally {
       setFormLoading(false)
+    }
+  }
+
+  function resetForm() {
+    setFormData({
+      isin: '',
+      name: '',
+      transaction_type: 'buy',
+      transaction_date: new Date().toISOString().split('T')[0],
+      quantity: 0,
+      unit_price: 0,
+      fees: 0,
+    })
+    setEditingTransaction(null)
+  }
+
+  function handleEditTransaction(trans: Transaction) {
+    setEditingTransaction(trans)
+    setFormData({
+      isin: trans.isin,
+      name: trans.name,
+      transaction_type: trans.transaction_type as 'buy' | 'sell',
+      transaction_date: trans.transaction_date,
+      quantity: trans.quantity,
+      unit_price: trans.unit_price,
+      fees: trans.fees,
+    })
+    setShowForm(true)
+    setFormError(null)
+    setFormSuccess(null)
+  }
+
+  async function handleExportCSV() {
+    try {
+      const blob = await exportTransactionsCSV()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      alert('Failed to export CSV')
     }
   }
 
@@ -267,12 +325,31 @@ export default function Portfolio() {
                 Sells
               </button>
             </div>
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowForm(!showForm)}
-            >
-              {showForm ? 'Cancel' : '+ Add Transaction'}
-            </button>
+            <div>
+              {transactions.length > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleExportCSV}
+                  style={{ marginRight: '8px' }}
+                >
+                  Export CSV
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (showForm) {
+                    setShowForm(false)
+                    resetForm()
+                  } else {
+                    resetForm()
+                    setShowForm(true)
+                  }
+                }}
+              >
+                {showForm ? 'Cancel' : '+ Add Transaction'}
+              </button>
+            </div>
           </div>
 
           {/* Transaction Form */}
@@ -284,7 +361,9 @@ export default function Portfolio() {
               marginBottom: '20px',
               border: '1px solid var(--border-color)'
             }}>
-              <h3 style={{ marginTop: 0, marginBottom: '16px' }}>Add Transaction</h3>
+              <h3 style={{ marginTop: 0, marginBottom: '16px' }}>
+                {editingTransaction ? `Edit Transaction - ${editingTransaction.name}` : 'Add Transaction'}
+              </h3>
 
               {formError && (
                 <div className="alert alert-error" style={{ marginBottom: '16px' }}>
@@ -298,8 +377,8 @@ export default function Portfolio() {
               )}
 
               <form onSubmit={handleSubmitTransaction}>
-                {/* Asset Selection */}
-                {assets.length > 0 && (
+                {/* Asset Selection - only show when adding new */}
+                {!editingTransaction && assets.length > 0 && (
                   <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
                       Select Existing Asset (optional)
@@ -319,50 +398,56 @@ export default function Portfolio() {
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
-                      ISIN *
-                    </label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. US0378331005"
-                      value={formData.isin}
-                      onChange={(e) => setFormData(prev => ({ ...prev, isin: e.target.value.toUpperCase() }))}
-                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
-                    />
+                {/* ISIN/Name fields - only show when adding new */}
+                {!editingTransaction && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                        ISIN *
+                      </label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. US0378331005"
+                        value={formData.isin}
+                        onChange={(e) => setFormData(prev => ({ ...prev, isin: e.target.value.toUpperCase() }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                        Asset Name *
+                      </label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Apple Inc."
+                        value={formData.name}
+                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
-                      Asset Name *
-                    </label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. Apple Inc."
-                      value={formData.name}
-                      onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
-                    />
-                  </div>
-                </div>
+                )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginTop: '16px' }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
-                      Type *
-                    </label>
-                    <select
-                      className="form-input"
-                      value={formData.transaction_type}
-                      onChange={(e) => setFormData(prev => ({ ...prev, transaction_type: e.target.value as 'buy' | 'sell' }))}
-                      style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
-                    >
-                      <option value="buy">Buy</option>
-                      <option value="sell">Sell</option>
-                    </select>
-                  </div>
+                <div style={{ display: 'grid', gridTemplateColumns: editingTransaction ? 'repeat(4, 1fr)' : 'repeat(5, 1fr)', gap: '16px', marginTop: '16px' }}>
+                  {/* Type selector - only show when adding new */}
+                  {!editingTransaction && (
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
+                        Type *
+                      </label>
+                      <select
+                        className="form-input"
+                        value={formData.transaction_type}
+                        onChange={(e) => setFormData(prev => ({ ...prev, transaction_type: e.target.value as 'buy' | 'sell' }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px' }}
+                      >
+                        <option value="buy">Buy</option>
+                        <option value="sell">Sell</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
                       Date *
@@ -451,13 +536,14 @@ export default function Portfolio() {
                     disabled={formLoading}
                     style={{ marginRight: '8px' }}
                   >
-                    {formLoading ? 'Saving...' : 'Add Transaction'}
+                    {formLoading ? 'Saving...' : editingTransaction ? 'Update Transaction' : 'Add Transaction'}
                   </button>
                   <button
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => {
                       setShowForm(false)
+                      resetForm()
                       setFormError(null)
                       setFormSuccess(null)
                     }}
@@ -484,7 +570,7 @@ export default function Portfolio() {
                   <th>Price</th>
                   <th>Amount</th>
                   <th>Gain/Loss</th>
-                  <th style={{ width: '80px' }}>Actions</th>
+                  <th style={{ width: '120px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -525,6 +611,18 @@ export default function Portfolio() {
                       )}
                     </td>
                     <td>
+                      <button
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          marginRight: '4px',
+                        }}
+                        onClick={() => handleEditTransaction(trans)}
+                        title="Edit transaction"
+                      >
+                        Edit
+                      </button>
                       <button
                         className="btn btn-secondary"
                         style={{

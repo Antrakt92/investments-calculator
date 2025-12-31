@@ -26,17 +26,19 @@
 - [x] Income tracking (Interest + Dividends)
 - [x] Improved Dashboard with tax breakdown
 - [x] Manual transaction entry (Buy/Sell)
+- [x] Edit existing transactions
 - [x] Delete individual transactions
 - [x] Transaction form with validation
+- [x] CSV export for transactions
 
 ---
 
 ## Phase 1: Core Features (Current)
 
-### 1.1 Manual Transaction Entry ⭐ HIGH PRIORITY
+### 1.1 Manual Transaction Entry ✅ COMPLETE
 - [x] Add Buy transaction form
 - [x] Add Sell transaction form
-- [ ] Edit existing transactions
+- [x] Edit existing transactions
 - [x] Delete individual transactions
 - [x] Form validation and error handling
 
@@ -48,7 +50,7 @@
 
 ### 1.3 Export Features
 - [ ] Export tax report as PDF
-- [ ] Export transactions as CSV
+- [x] Export transactions as CSV
 - [ ] Print-friendly tax summary
 
 ---

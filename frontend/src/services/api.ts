@@ -295,3 +295,32 @@ export async function getAssets(): Promise<AssetInfo[]> {
   if (!response.ok) throw new Error('Failed to fetch assets')
   return response.json()
 }
+
+export interface TransactionUpdate {
+  transaction_date?: string
+  quantity?: number
+  unit_price?: number
+  fees?: number
+}
+
+export async function updateTransaction(
+  id: number,
+  data: TransactionUpdate
+): Promise<{ success: boolean; message: string; transaction: Transaction }> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to update transaction')
+  }
+  return response.json()
+}
+
+export async function exportTransactionsCSV(): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/portfolio/transactions/export/csv`)
+  if (!response.ok) throw new Error('Failed to export transactions')
+  return response.blob()
+}
