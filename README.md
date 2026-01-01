@@ -11,16 +11,17 @@ A web application that parses Trade Republic tax reports (PDF) and calculates Ir
 - ✅ **Portfolio Dashboard** - Holdings, transactions, income tracking
 - ✅ **Tax Calculator** - CGT 33%, Exit Tax 41%, DIRT 33%
 - ✅ **Irish Matching Rules** - Same-day, 4-week bed & breakfast, FIFO
+- ✅ **Deemed Disposal Tracking** - 8-year rule with time remaining, urgency alerts
 - ✅ **Manual Entry** - Add/edit/delete transactions
 - ✅ **CSV Export** - Export transactions
 - ✅ **PDF Export** - Tax report for printing
 - ✅ **Form 11 Guidance** - Field references for Revenue filing
 - ✅ **Dark Mode** - Toggle light/dark theme
 - ✅ **Loss Carry Forward** - Input losses from previous years
+- ✅ **Unit Tests** - 45 tests for CGT, Exit Tax, and parser
 
 ### Coming Soon
-- 👨‍👩‍👧 Family/Joint tax returns
-- 📅 Deemed disposal (8-year rule) tracking
+- 👨‍👩‍👧 Family/Joint tax returns (husband + wife separate tracking, combined Form 11)
 - 📊 Multi-year support
 
 ---
@@ -106,10 +107,11 @@ python -m pytest tests/ --cov=app --cov-report=html
 
 ### Exit Tax - 41%
 - Applies to Irish/EU domiciled funds (ISIN: IE, LU, DE, FR, etc.)
-- **Deemed disposal every 8 years** from purchase
+- **Deemed disposal every 8 years** from purchase (tracked with urgency alerts)
 - **No annual exemption**
 - Losses CAN offset gains within Exit Tax regime
 - Losses CANNOT offset CGT gains (separate regime)
+- Dashboard widget shows upcoming deemed disposals with time remaining
 
 ### DIRT - 33%
 - Applies to interest income (Trade Republic cash interest)
