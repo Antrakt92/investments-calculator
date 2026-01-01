@@ -11,7 +11,7 @@
 
 ---
 
-## Current Status (v0.4.1)
+## Current Status (v0.4.2)
 
 ### ✅ Implemented
 - [x] PDF Upload (Trade Republic tax reports)
@@ -43,7 +43,9 @@
 - [x] Per-person filtering on Portfolio, Tax Calculator
 - [x] Person selector on PDF upload
 
-### 🔧 Recent Fixes (v0.4.1)
+### 🔧 Recent Fixes (v0.4.2)
+- [x] **Combined View CGT Exemption**: Fixed critical bug - now correctly applies per-person €1,270 exemption in combined view (2 people = €2,540 total)
+- [x] **Duplicate Detection**: Both transactions and income events now include person_id check (allows same data for different family members)
 - [x] Manual transactions now assigned to selected person in family mode
 - [x] CSV export respects person filter and includes Person column
 - [x] Dashboard person filtering (UX consistency with Portfolio/Tax)
@@ -185,6 +187,14 @@
 
 ## Known Issues & Bugs
 
+### CRITICAL - Tax Calculation Bugs
+- [x] ~~**Combined View CGT Exemption**: Combined view uses single €1,270 exemption instead of per-person~~ FIXED
+- [ ] **Exit Tax Fee Handling**: Exit Tax calculations don't consistently include fees in cost basis
+
+### HIGH Priority
+- [x] ~~**Income Event Duplicate Detection**: Fixed - duplicate detection now includes person_id~~ FIXED
+- [ ] **CSV Export Person Lookup**: lookupPersonName function may fail if person is deleted
+
 ### Parser
 - [x] ~~European decimal format (7,00 → 7.00)~~ FIXED
 - [x] ~~Concatenated numbers (1.0000342 → 1.0000 342)~~ FIXED
@@ -240,5 +250,7 @@
 4. ~~**Now**: Fix person_id bugs in manual transactions/CSV~~ ✅
 5. ~~**Now**: Dashboard person filtering (UX consistency)~~ ✅
 6. ~~**Now**: Data validation and error handling~~ ✅
-7. **Now**: Multi-year support (Phase 3)
-8. **Next**: Tax optimization tools
+7. ~~**CRITICAL**: Fix Combined View CGT exemption bug (per-person exemptions)~~ ✅
+8. **HIGH**: Add income event duplicate detection
+9. **Then**: Multi-year support (Phase 3)
+10. **Next**: Tax optimization tools

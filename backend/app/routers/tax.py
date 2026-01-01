@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
-from ..models import get_db, Asset, Transaction, IncomeEvent, TransactionType
+from ..models import get_db, Asset, Transaction, IncomeEvent, TransactionType, Person
 from ..services import (
     IrishCGTCalculator,
     ExitTaxCalculator,
@@ -19,35 +19,22 @@ from ..schemas import TaxSummaryResponse, PaymentDeadlineResponse
 router = APIRouter(prefix="/tax", tags=["tax"])
 
 
-@router.get("/calculate/{tax_year}")
-async def calculate_tax(
+def _calculate_tax_for_person(
+    db: Session,
     tax_year: int,
-    losses_carried_forward: Decimal = Query(Decimal("0"), description="CGT losses from previous years"),
-    person_id: Optional[int] = Query(None, description="Person ID for family mode (None = combined view)"),
-    db: Session = Depends(get_db)
-) -> dict:
+    person_id: Optional[int],
+    losses_carried_forward: Decimal = Decimal("0")
+) -> tuple:
     """
-    Calculate Irish taxes for a tax year.
-
-    Returns breakdown of:
-    - CGT (33%) on stocks
-    - Exit Tax (41%) on EU funds
-    - DIRT (33%) on interest
-    - Dividend income summary
-
-    If person_id is provided, calculates for that person only.
-    If person_id is None, calculates combined totals for all persons.
-    Note: Each person gets their own €1,270 CGT exemption.
+    Calculate tax for a single person (or all if person_id is None).
+    Returns (cgt_result, exit_result, dirt_result, exit_disposals, income_events, all_disposal_matches)
     """
-    # Initialize calculators
     cgt_calc = IrishCGTCalculator()
     exit_calc = ExitTaxCalculator()
     dirt_calc = DIRTCalculator()
-
-    # Collect exit tax disposals
     all_exit_disposals = []
 
-    # Get all transactions for the year and prior (for cost basis)
+    # Get transactions
     trans_query = db.query(Transaction).join(Asset).filter(
         Transaction.transaction_date <= date(tax_year, 12, 31)
     )
@@ -62,7 +49,6 @@ async def calculate_tax(
 
         if trans.transaction_type == TransactionType.BUY:
             qty = abs(trans.quantity)
-            # Include fees in cost basis (allowable cost for CGT)
             total_cost_with_fees = trans.gross_amount + trans.fees
             unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
 
@@ -86,12 +72,10 @@ async def calculate_tax(
 
         elif trans.transaction_type == TransactionType.SELL:
             qty = abs(trans.quantity)
-            # Deduct fees from proceeds (net amount received)
             proceeds_after_fees = trans.gross_amount - trans.fees
             unit_price = proceeds_after_fees / qty if qty > 0 else Decimal("0")
 
             if is_exit_tax:
-                # Collect the disposals for Exit Tax calculation
                 disposals = exit_calc.process_disposal(
                     isin=asset.isin,
                     disposal_date=trans.transaction_date,
@@ -131,11 +115,171 @@ async def calculate_tax(
 
     # Calculate taxes
     cgt_result = cgt_calc.calculate_tax(tax_year, losses_brought_forward=losses_carried_forward)
-
-    # Calculate Exit Tax using collected disposals
     exit_result = exit_calc.calculate_tax(tax_year, all_exit_disposals)
-
     dirt_result = dirt_calc.calculate_tax(tax_year)
+
+    return cgt_result, exit_result, dirt_result, dirt_calc, all_exit_disposals, income_events
+
+
+@router.get("/calculate/{tax_year}")
+async def calculate_tax(
+    tax_year: int,
+    losses_carried_forward: Decimal = Query(Decimal("0"), description="CGT losses from previous years"),
+    person_id: Optional[int] = Query(None, description="Person ID for family mode (None = combined view)"),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Calculate Irish taxes for a tax year.
+
+    Returns breakdown of:
+    - CGT (33%) on stocks
+    - Exit Tax (41%) on EU funds
+    - DIRT (33%) on interest
+    - Dividend income summary
+
+    If person_id is provided, calculates for that person only.
+    If person_id is None, calculates combined totals for all persons.
+    IMPORTANT: Each person gets their own €1,270 CGT exemption.
+    """
+    if person_id is not None:
+        # Single person calculation - straightforward
+        cgt_result, exit_result, dirt_result, dirt_calc, all_exit_disposals, income_events = \
+            _calculate_tax_for_person(db, tax_year, person_id, losses_carried_forward)
+        all_disposal_matches = cgt_result.disposal_matches
+        total_annual_exemption = cgt_result.annual_exemption
+    else:
+        # Combined view: Calculate per-person to apply individual exemptions
+        # Get all unique person_ids that have transactions
+        person_ids_with_trans = db.query(Transaction.person_id).filter(
+            Transaction.transaction_date <= date(tax_year, 12, 31)
+        ).distinct().all()
+        person_ids = [pid[0] for pid in person_ids_with_trans if pid[0] is not None]
+
+        if not person_ids:
+            # No persons - might be legacy data without person_id
+            cgt_result, exit_result, dirt_result, dirt_calc, all_exit_disposals, income_events = \
+                _calculate_tax_for_person(db, tax_year, None, losses_carried_forward)
+            all_disposal_matches = cgt_result.disposal_matches
+            total_annual_exemption = cgt_result.annual_exemption
+        else:
+            # Calculate tax for each person and aggregate
+            # Each person gets their own €1,270 exemption
+            from ..services.irish_cgt_calculator import CGTResult
+            from ..services.exit_tax_calculator import ExitTaxResult
+
+            # Aggregate CGT results
+            total_cgt_gains = Decimal("0")
+            total_cgt_losses = Decimal("0")
+            total_cgt_net = Decimal("0")
+            total_exemption_used = Decimal("0")
+            total_cgt_taxable = Decimal("0")
+            total_cgt_tax_due = Decimal("0")
+            total_jan_nov_gains = Decimal("0")
+            total_jan_nov_tax = Decimal("0")
+            total_dec_gains = Decimal("0")
+            total_dec_tax = Decimal("0")
+            total_losses_to_carry = Decimal("0")
+            all_disposal_matches = []
+
+            # Aggregate Exit Tax results
+            total_exit_disposal_gains = Decimal("0")
+            total_exit_disposal_losses = Decimal("0")
+            total_exit_deemed_gains = Decimal("0")
+            total_exit_taxable = Decimal("0")
+            total_exit_tax_due = Decimal("0")
+            all_upcoming_deemed = []
+
+            # Aggregate DIRT results
+            total_interest = Decimal("0")
+            total_dirt_withheld = Decimal("0")
+            total_dirt_due = Decimal("0")
+            total_dirt_to_pay = Decimal("0")
+
+            # Aggregate income events
+            all_income_events = []
+            first_dirt_calc = None
+
+            # Per-person losses carried forward (simplified: split evenly)
+            per_person_losses = losses_carried_forward / len(person_ids) if len(person_ids) > 0 else Decimal("0")
+
+            for pid in person_ids:
+                p_cgt, p_exit, p_dirt, p_dirt_calc, p_exit_disp, p_income = \
+                    _calculate_tax_for_person(db, tax_year, pid, per_person_losses)
+
+                if first_dirt_calc is None:
+                    first_dirt_calc = p_dirt_calc
+
+                # CGT aggregation
+                total_cgt_gains += p_cgt.total_gains
+                total_cgt_losses += p_cgt.total_losses
+                total_cgt_net += p_cgt.net_gain_loss
+                total_exemption_used += p_cgt.exemption_used
+                total_cgt_taxable += p_cgt.taxable_gain
+                total_cgt_tax_due += p_cgt.tax_due
+                total_jan_nov_gains += p_cgt.jan_nov_gains
+                total_jan_nov_tax += p_cgt.jan_nov_tax
+                total_dec_gains += p_cgt.dec_gains
+                total_dec_tax += p_cgt.dec_tax
+                total_losses_to_carry += p_cgt.losses_to_carry_forward
+                all_disposal_matches.extend(p_cgt.disposal_matches)
+
+                # Exit Tax aggregation
+                total_exit_disposal_gains += p_exit.disposal_gains
+                total_exit_disposal_losses += p_exit.disposal_losses
+                total_exit_deemed_gains += p_exit.deemed_disposal_gains
+                total_exit_taxable += p_exit.total_gains_taxable
+                total_exit_tax_due += p_exit.tax_due
+                all_upcoming_deemed.extend(p_exit.upcoming_deemed_disposals)
+
+                # DIRT aggregation
+                total_interest += p_dirt.total_interest
+                total_dirt_withheld += p_dirt.tax_withheld
+                total_dirt_due += p_dirt.dirt_due
+                total_dirt_to_pay += p_dirt.dirt_to_pay
+
+                all_income_events.extend(p_income)
+
+            # Build aggregated CGT result
+            cgt_result = CGTResult(
+                tax_year=tax_year,
+                total_gains=total_cgt_gains,
+                total_losses=total_cgt_losses,
+                net_gain_loss=total_cgt_net,
+                annual_exemption=Decimal("1270") * len(person_ids),  # Per-person exemptions
+                exemption_used=total_exemption_used,
+                taxable_gain=total_cgt_taxable,
+                tax_due=total_cgt_tax_due,
+                jan_nov_gains=total_jan_nov_gains,
+                jan_nov_tax=total_jan_nov_tax,
+                dec_gains=total_dec_gains,
+                dec_tax=total_dec_tax,
+                disposal_matches=all_disposal_matches,
+                losses_to_carry_forward=total_losses_to_carry
+            )
+
+            # Build aggregated Exit Tax result
+            exit_result = ExitTaxResult(
+                tax_year=tax_year,
+                disposal_gains=total_exit_disposal_gains,
+                disposal_losses=total_exit_disposal_losses,
+                deemed_disposal_gains=total_exit_deemed_gains,
+                total_gains_taxable=total_exit_taxable,
+                tax_due=total_exit_tax_due,
+                upcoming_deemed_disposals=all_upcoming_deemed
+            )
+
+            # Build aggregated DIRT result (simple container)
+            class DIRTAggregated:
+                pass
+            dirt_result = DIRTAggregated()
+            dirt_result.total_interest = total_interest
+            dirt_result.tax_withheld = total_dirt_withheld
+            dirt_result.dirt_due = total_dirt_due
+            dirt_result.dirt_to_pay = total_dirt_to_pay
+
+            dirt_calc = first_dirt_calc
+            income_events = all_income_events
+            total_annual_exemption = Decimal("1270") * len(person_ids)
 
     # Sum dividends
     total_dividends = Decimal("0")
@@ -155,7 +299,7 @@ async def calculate_tax(
             "gains": float(cgt_result.total_gains),
             "losses": float(cgt_result.total_losses),
             "net_gain_loss": float(cgt_result.net_gain_loss),
-            "annual_exemption": float(cgt_result.annual_exemption),
+            "annual_exemption": float(total_annual_exemption),
             "exemption_used": float(cgt_result.exemption_used),
             "taxable_gain": float(cgt_result.taxable_gain),
             "tax_rate": "33%",
@@ -215,7 +359,7 @@ async def calculate_tax(
             "tax_due": float(dirt_result.dirt_due),
             "tax_to_pay": float(dirt_result.dirt_to_pay),
             "note": "Trade Republic does not withhold DIRT - must self-declare",
-            "form_guidance": dirt_calc.get_annual_summary(tax_year)
+            "form_guidance": dirt_calc.get_annual_summary(tax_year) if dirt_calc else {}
         },
         "dividends": {
             "description": "Dividend income (taxed at marginal rate)",

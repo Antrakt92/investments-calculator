@@ -75,12 +75,13 @@ async def upload_trade_republic_pdf(
                 db.add(asset)
                 db.flush()
 
-            # Check for duplicate transaction (same asset, date, type, quantity, amount)
+            # Check for duplicate transaction (include person_id to allow same transaction for different persons)
             trans_type = TransactionType.BUY if trans.transaction_type == "buy" else TransactionType.SELL
             quantity = trans.quantity if trans.transaction_type == "buy" else -trans.quantity
 
             existing = db.query(Transaction).filter(
                 Transaction.asset_id == asset.id,
+                Transaction.person_id == person_id,
                 Transaction.transaction_date == trans.transaction_date,
                 Transaction.transaction_type == trans_type,
                 Transaction.gross_amount == trans.market_value
@@ -125,9 +126,10 @@ async def upload_trade_republic_pdf(
                 if asset:
                     asset_id = asset.id
 
-            # Check for duplicate income event
+            # Check for duplicate income event (include person_id to allow same event for different persons)
             existing_income = db.query(IncomeEvent).filter(
                 IncomeEvent.asset_id == asset_id,
+                IncomeEvent.person_id == person_id,
                 IncomeEvent.payment_date == income.payment_date,
                 IncomeEvent.income_type == income.income_type.lower(),
                 IncomeEvent.gross_amount == income.gross_amount
