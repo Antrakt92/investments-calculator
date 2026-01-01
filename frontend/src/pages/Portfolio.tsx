@@ -17,6 +17,7 @@ import {
   type TransactionUpdate,
   type Person
 } from '../services/api'
+import { HelpIcon } from '../components/Tooltip'
 
 export default function Portfolio() {
   const [holdings, setHoldings] = useState<Holding[]>([])
@@ -372,7 +373,10 @@ export default function Portfolio() {
                   <th>Quantity</th>
                   <th>Avg Cost</th>
                   <th>Cost Basis</th>
-                  <th>Tax</th>
+                  <th style={{ display: 'flex', alignItems: 'center' }}>
+                    Tax
+                    <HelpIcon text="CGT (33%) applies to stocks and non-EU ETFs. Exit Tax (41%) applies to EU/Irish domiciled ETFs. Tax type is determined by the asset's ISIN country code." />
+                  </th>
                 </tr>
               </thead>
               <tbody>

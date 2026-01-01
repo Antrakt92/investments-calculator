@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, getDeemedDisposals, getPersons, getRecentSales, type Holding, type TaxResult, type IncomeEvent, type Person, type RecentSale } from '../services/api'
+import { HelpIcon, TAX_TERMS } from '../components/Tooltip'
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<{
@@ -253,21 +254,30 @@ export default function Dashboard() {
           {/* Tax Summary Cards */}
           <div className="stat-grid">
             <div className="stat-card" style={{ borderLeft: '4px solid var(--primary)' }}>
-              <div className="stat-label">CGT Due (Stocks)</div>
+              <div className="stat-label">
+                CGT Due (Stocks)
+                <HelpIcon text={TAX_TERMS.CGT} />
+              </div>
               <div className="stat-value">{formatCurrency(taxResult?.cgt.tax_due || 0)}</div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 33% on gains above €1,270
               </div>
             </div>
             <div className="stat-card" style={{ borderLeft: '4px solid var(--danger)' }}>
-              <div className="stat-label">Exit Tax Due (EU Funds)</div>
+              <div className="stat-label">
+                Exit Tax Due (EU Funds)
+                <HelpIcon text={TAX_TERMS.EXIT_TAX} />
+              </div>
               <div className="stat-value">{formatCurrency(taxResult?.exit_tax.tax_due || 0)}</div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 41% on gains (no exemption)
               </div>
             </div>
             <div className="stat-card" style={{ borderLeft: '4px solid var(--warning)' }}>
-              <div className="stat-label">DIRT Due (Interest)</div>
+              <div className="stat-label">
+                DIRT Due (Interest)
+                <HelpIcon text={TAX_TERMS.DIRT} />
+              </div>
               <div className="stat-value">{formatCurrency(taxResult?.dirt.tax_to_pay || 0)}</div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 33% on €{totalInterest.toFixed(2)} interest
@@ -396,6 +406,7 @@ export default function Dashboard() {
               <h2 className="card-title">
                 <span style={{ marginRight: '8px' }}>⏰</span>
                 Upcoming Deemed Disposals (8-Year Rule)
+                <HelpIcon text={TAX_TERMS.DEEMED_DISPOSAL} />
               </h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
                 EU funds held for 8 years trigger Exit Tax (41%) even without selling.
@@ -462,6 +473,7 @@ export default function Dashboard() {
               <h2 className="card-title">
                 <span style={{ marginRight: '8px' }}>⚠️</span>
                 Bed & Breakfast Rule Active
+                <HelpIcon text={TAX_TERMS.BED_BREAKFAST} />
               </h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
                 You recently sold assets subject to CGT. Buying them back within 4 weeks triggers the

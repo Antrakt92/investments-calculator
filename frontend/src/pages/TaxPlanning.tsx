@@ -9,6 +9,7 @@ import {
   type WhatIfResult,
   type LossHarvestingOpportunity
 } from '../services/api'
+import { HelpIcon, TAX_TERMS } from '../components/Tooltip'
 
 export default function TaxPlanning() {
   const [activeTab, setActiveTab] = useState<'whatif' | 'harvesting'>('whatif')
@@ -210,7 +211,10 @@ export default function TaxPlanning() {
       {/* What-If Calculator Tab */}
       {activeTab === 'whatif' && (
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>What-If Tax Scenario</h2>
+          <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center' }}>
+            What-If Tax Scenario
+            <HelpIcon text="Simulate selling a position to see the estimated tax impact before actually making the trade. Uses FIFO (First In, First Out) matching." />
+          </h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
             Calculate the estimated tax impact before selling a position.
           </p>
@@ -352,8 +356,9 @@ export default function TaxPlanning() {
                   background: 'var(--bg-secondary)',
                   borderRadius: '8px'
                 }}>
-                  <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  <div style={{ color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center' }}>
                     Cost Basis (FIFO)
+                    <HelpIcon text={TAX_TERMS.FIFO} />
                   </div>
                   <div style={{ fontSize: '24px', fontWeight: 600 }}>
                     {formatCurrency(whatIfResult.cost_basis.total)}
@@ -452,11 +457,15 @@ export default function TaxPlanning() {
       {/* Loss Harvesting Tab */}
       {activeTab === 'harvesting' && (
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>Loss Harvesting Opportunities</h2>
+          <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center' }}>
+            Loss Harvesting Opportunities
+            <HelpIcon text="Tax loss harvesting lets you sell investments at a loss to offset capital gains. CGT losses can offset CGT gains, and unused losses carry forward. Exit Tax losses can only offset Exit Tax gains." />
+          </h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
             Identify positions with unrealized losses that could be sold to offset gains and reduce your tax bill.
             <br />
             <strong>Warning:</strong> Watch out for the 4-week "bed & breakfast" rule if you rebuy.
+            <HelpIcon text={TAX_TERMS.BED_BREAKFAST} />
           </p>
 
           {harvestingLoading ? (
