@@ -12,6 +12,7 @@ A web application that parses Trade Republic tax reports (PDF) and calculates Ir
 - ✅ **Tax Calculator** - CGT 33%, Exit Tax 41%, DIRT 33%
 - ✅ **Irish Matching Rules** - Same-day, 4-week bed & breakfast, FIFO
 - ✅ **Deemed Disposal Tracking** - 8-year rule with time remaining, urgency alerts
+- ✅ **Family Mode** - Track investments per person, each with own €1,270 exemption
 - ✅ **Manual Entry** - Add/edit/delete transactions
 - ✅ **CSV Export** - Export transactions
 - ✅ **PDF Export** - Tax report for printing
@@ -21,7 +22,6 @@ A web application that parses Trade Republic tax reports (PDF) and calculates Ir
 - ✅ **Unit Tests** - 45 tests for CGT, Exit Tax, and parser
 
 ### Coming Soon
-- 👨‍👩‍👧 Family/Joint tax returns (husband + wife separate tracking, combined Form 11)
 - 📊 Multi-year support
 
 ---
@@ -168,29 +168,26 @@ python -m pytest tests/ --cov=app --cov-report=html
 
 ---
 
-## 📋 Form 11 Guidance
+## 👨‍👩‍👧 Family Mode
 
-# Run development server
-npm run dev
-```
-```
-# В терминале с бэкендом нажмите Ctrl+C чтобы остановить сервер
+Family Mode allows tracking investments separately for each person (e.g., husband and wife):
 
-# Обновите код
-cd C:\Users\dimon\Documents\GitHub\investments-calculator
-git pull
+### Setup
+1. Go to **Settings** page
+2. Add your name and optionally add spouse/partner
+3. Each person can have a distinct color for easy identification
 
-# Удалите старую базу данных (чтобы начать заново)
-Remove-Item -Force data\irish_tax.db -ErrorAction SilentlyContinue
+### How It Works
+- **Upload**: When uploading PDFs, select whose transactions they belong to
+- **Portfolio**: Filter holdings, transactions, and income by person
+- **Tax Calculator**: Calculate taxes per person (each gets €1,270 CGT exemption) or combined view
 
-# Перезапустите бэкенд
-cd backend
-venv\Scripts\activate
-python -m uvicorn app.main:app --reload --port 8000
+### Benefits
+- Each person gets their own annual CGT exemption (€1,270 each)
+- Track investments separately while filing joint Form 11
+- Color-coded UI for quick identification
 
-The frontend will be available at http://localhost:3000 and will proxy API requests to the backend.
-```
-## API Endpoints
+---
 
 ## ⚠️ Important Notes
 
@@ -228,10 +225,3 @@ Trade Republic pays interest but does **NOT** withhold Irish DIRT. You must self
 ## 📄 Disclaimer
 
 This tool is for **informational purposes only**. Always consult a qualified tax professional for your specific situation. The calculations may not account for all tax rules, exemptions, or individual circumstances.
-
----
-
-## 📝 License
-
-This tool is for informational purposes only. Always consult a tax professional for your specific situation. The calculations may not account for all tax rules and exemptions.
-
