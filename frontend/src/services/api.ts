@@ -54,6 +54,76 @@ export async function clearAllData(): Promise<{
   return response.json()
 }
 
+// ===== Backup / Restore =====
+
+export interface BackupData {
+  export_version: string
+  export_date: string
+  data: {
+    persons: Array<{ id: number; name: string; is_primary: boolean; pps_number: string | null; color: string }>
+    assets: Array<{ id: number; isin: string; name: string; asset_type: string; is_eu_fund: boolean }>
+    transactions: Array<{
+      id: number
+      asset_id: number
+      person_id: number | null
+      transaction_type: string
+      transaction_date: string
+      quantity: number
+      gross_amount: number
+      fees: number
+      notes: string | null
+    }>
+    income_events: Array<{
+      id: number
+      asset_id: number
+      person_id: number | null
+      income_type: string
+      payment_date: string
+      gross_amount: number
+      tax_withheld: number
+      net_amount: number
+      tax_credit: number
+    }>
+  }
+  counts: {
+    persons: number
+    assets: number
+    transactions: number
+    income_events: number
+  }
+}
+
+export async function exportBackup(): Promise<BackupData> {
+  const response = await fetch(`${API_BASE}/upload/export-json`)
+  if (!response.ok) throw new Error('Failed to export backup')
+  return response.json()
+}
+
+export async function importBackup(data: BackupData, clearExisting: boolean = false): Promise<{
+  success: boolean
+  imported: {
+    persons: number
+    assets: number
+    transactions: number
+    income_events: number
+  }
+  message: string
+}> {
+  const url = clearExisting
+    ? `${API_BASE}/upload/import-json?clear_existing=true`
+    : `${API_BASE}/upload/import-json`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to import backup')
+  }
+  return response.json()
+}
+
 export interface Holding {
   isin: string
   name: string

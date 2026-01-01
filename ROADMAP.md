@@ -159,8 +159,8 @@
 - [ ] Onboarding tutorial
 
 ### 5.2 Data Management
-- [ ] Export all data as JSON backup
-- [ ] Import from JSON backup
+- [x] Export all data as JSON backup - Settings page
+- [x] Import from JSON backup - Settings page (with merge/replace option)
 - [ ] Auto-backup before destructive operations
 - [ ] Data encryption at rest
 
@@ -262,5 +262,6 @@
 10. ~~**Next**: Tax optimization tools (Phase 4)~~ ✅ Core features complete
 11. ~~**Next**: Alerts & notifications (payment deadlines, deemed disposal warnings)~~ ✅ Done
 12. ~~**Next**: 4-week rule warning~~ ✅ Done
-13. **Next**: JSON backup/restore, tax-efficient selling recommendations
-14. **Future**: Year comparison, portfolio analytics
+13. ~~**Next**: JSON backup/restore~~ ✅ Done
+14. **Next**: Tax-efficient selling recommendations, tooltips/help text
+15. **Future**: Year comparison, portfolio analytics

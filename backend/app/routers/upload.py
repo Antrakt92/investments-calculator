@@ -327,6 +327,224 @@ async def debug_pdf(file: UploadFile = File(...)):
         tmp_path.unlink(missing_ok=True)
 
 
+@router.get("/export-json")
+async def export_all_data(db: Session = Depends(get_db)) -> dict:
+    """
+    Export all data as JSON for backup.
+    Includes: persons, assets, transactions, income events.
+    """
+    from ..models import Person
+
+    # Get all persons
+    persons = db.query(Person).all()
+    persons_data = [
+        {
+            "id": p.id,
+            "name": p.name,
+            "is_primary": p.is_primary,
+            "pps_number": p.pps_number,
+            "color": p.color
+        }
+        for p in persons
+    ]
+
+    # Get all assets
+    assets = db.query(Asset).all()
+    assets_data = [
+        {
+            "id": a.id,
+            "isin": a.isin,
+            "name": a.name,
+            "asset_type": a.asset_type.value,
+            "is_eu_fund": a.is_eu_fund
+        }
+        for a in assets
+    ]
+
+    # Get all transactions
+    transactions = db.query(Transaction).all()
+    transactions_data = [
+        {
+            "id": t.id,
+            "asset_id": t.asset_id,
+            "person_id": t.person_id,
+            "transaction_type": t.transaction_type.value,
+            "transaction_date": t.transaction_date.isoformat(),
+            "quantity": float(t.quantity),
+            "gross_amount": float(t.gross_amount),
+            "fees": float(t.fees),
+            "notes": t.notes
+        }
+        for t in transactions
+    ]
+
+    # Get all income events
+    income_events = db.query(IncomeEvent).all()
+    income_data = [
+        {
+            "id": i.id,
+            "asset_id": i.asset_id,
+            "person_id": i.person_id,
+            "income_type": i.income_type,
+            "payment_date": i.payment_date.isoformat(),
+            "gross_amount": float(i.gross_amount),
+            "tax_withheld": float(i.tax_withheld),
+            "net_amount": float(i.net_amount),
+            "tax_credit": float(i.tax_credit) if i.tax_credit else 0.0
+        }
+        for i in income_events
+    ]
+
+    from datetime import datetime
+    return {
+        "export_version": "1.0",
+        "export_date": datetime.now().isoformat(),
+        "data": {
+            "persons": persons_data,
+            "assets": assets_data,
+            "transactions": transactions_data,
+            "income_events": income_data
+        },
+        "counts": {
+            "persons": len(persons_data),
+            "assets": len(assets_data),
+            "transactions": len(transactions_data),
+            "income_events": len(income_data)
+        }
+    }
+
+
+@router.post("/import-json")
+async def import_all_data(
+    data: dict,
+    clear_existing: bool = Query(False, description="Clear all existing data before import"),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Import data from JSON backup.
+    Set clear_existing=true to replace all existing data.
+    """
+    from datetime import date
+    from ..models import Person
+
+    if "data" not in data:
+        raise HTTPException(status_code=400, detail="Invalid backup format: missing 'data' field")
+
+    backup_data = data["data"]
+
+    if clear_existing:
+        # Clear all data in correct order (respect foreign keys)
+        db.query(IncomeEvent).delete()
+        db.query(Transaction).delete()
+        db.query(Asset).delete()
+        db.query(Person).delete()
+        db.commit()
+
+    imported = {"persons": 0, "assets": 0, "transactions": 0, "income_events": 0}
+    id_mappings = {"persons": {}, "assets": {}}
+
+    # Import persons
+    for p in backup_data.get("persons", []):
+        old_id = p["id"]
+        existing = db.query(Person).filter(Person.name == p["name"]).first()
+        if existing:
+            id_mappings["persons"][old_id] = existing.id
+        else:
+            new_person = Person(
+                name=p["name"],
+                is_primary=p.get("is_primary", False),
+                pps_number=p.get("pps_number"),
+                color=p.get("color", "#3B82F6")
+            )
+            db.add(new_person)
+            db.flush()
+            id_mappings["persons"][old_id] = new_person.id
+            imported["persons"] += 1
+
+    # Import assets
+    for a in backup_data.get("assets", []):
+        old_id = a["id"]
+        existing = db.query(Asset).filter(Asset.isin == a["isin"]).first()
+        if existing:
+            id_mappings["assets"][old_id] = existing.id
+        else:
+            new_asset = Asset(
+                isin=a["isin"],
+                name=a["name"],
+                asset_type=AssetType(a["asset_type"]),
+                is_eu_fund=a.get("is_eu_fund", False)
+            )
+            db.add(new_asset)
+            db.flush()
+            id_mappings["assets"][old_id] = new_asset.id
+            imported["assets"] += 1
+
+    # Import transactions
+    for t in backup_data.get("transactions", []):
+        asset_id = id_mappings["assets"].get(t["asset_id"], t["asset_id"])
+        person_id = id_mappings["persons"].get(t.get("person_id"), t.get("person_id"))
+
+        # Check for duplicate
+        trans_date = date.fromisoformat(t["transaction_date"])
+        existing = db.query(Transaction).filter(
+            Transaction.asset_id == asset_id,
+            Transaction.person_id == person_id,
+            Transaction.transaction_date == trans_date,
+            Transaction.quantity == Decimal(str(t["quantity"]))
+        ).first()
+
+        if not existing:
+            new_trans = Transaction(
+                asset_id=asset_id,
+                person_id=person_id,
+                transaction_type=TransactionType(t["transaction_type"]),
+                transaction_date=trans_date,
+                quantity=Decimal(str(t["quantity"])),
+                gross_amount=Decimal(str(t["gross_amount"])),
+                fees=Decimal(str(t.get("fees", 0))),
+                notes=t.get("notes")
+            )
+            db.add(new_trans)
+            imported["transactions"] += 1
+
+    # Import income events
+    for i in backup_data.get("income_events", []):
+        asset_id = id_mappings["assets"].get(i["asset_id"], i["asset_id"])
+        person_id = id_mappings["persons"].get(i.get("person_id"), i.get("person_id"))
+
+        # Check for duplicate
+        payment_date = date.fromisoformat(i["payment_date"])
+        existing = db.query(IncomeEvent).filter(
+            IncomeEvent.asset_id == asset_id,
+            IncomeEvent.person_id == person_id,
+            IncomeEvent.payment_date == payment_date,
+            IncomeEvent.gross_amount == Decimal(str(i["gross_amount"]))
+        ).first()
+
+        if not existing:
+            new_income = IncomeEvent(
+                asset_id=asset_id,
+                person_id=person_id,
+                income_type=i["income_type"],
+                payment_date=payment_date,
+                gross_amount=Decimal(str(i["gross_amount"])),
+                tax_withheld=Decimal(str(i.get("tax_withheld", 0))),
+                net_amount=Decimal(str(i["net_amount"])),
+                tax_credit=Decimal(str(i.get("tax_credit", 0)))
+            )
+            db.add(new_income)
+            imported["income_events"] += 1
+
+    db.commit()
+
+    return {
+        "success": True,
+        "imported": imported,
+        "message": f"Imported {imported['persons']} persons, {imported['assets']} assets, "
+                   f"{imported['transactions']} transactions, {imported['income_events']} income events"
+    }
+
+
 def _determine_asset_type(isin: str, name: str) -> AssetType:
     """Determine asset type for Irish tax purposes."""
     from ..services.exit_tax_calculator import ExitTaxCalculator
