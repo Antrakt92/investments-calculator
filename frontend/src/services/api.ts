@@ -277,6 +277,7 @@ export interface TransactionCreate {
   unit_price: number
   fees?: number
   notes?: string
+  person_id?: number  // For family mode
 }
 
 export interface AssetInfo {
@@ -343,8 +344,13 @@ export async function updateTransaction(
   return response.json()
 }
 
-export async function exportTransactionsCSV(): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/portfolio/transactions/export/csv`)
+export async function exportTransactionsCSV(personId?: number): Promise<Blob> {
+  const params = new URLSearchParams()
+  if (personId !== undefined) params.set('person_id', personId.toString())
+  const url = params.toString()
+    ? `${API_BASE}/portfolio/transactions/export/csv?${params}`
+    : `${API_BASE}/portfolio/transactions/export/csv`
+  const response = await fetch(url)
   if (!response.ok) throw new Error('Failed to export transactions')
   return response.blob()
 }

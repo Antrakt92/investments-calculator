@@ -131,8 +131,12 @@ export default function Portfolio() {
         const result = await updateTransaction(editingTransaction.id, updateData)
         setFormSuccess(result.message)
       } else {
-        // Create new transaction
-        const result = await createTransaction(formData)
+        // Create new transaction (include person_id if in family mode)
+        const transactionData: TransactionCreate = {
+          ...formData,
+          person_id: selectedPersonId,
+        }
+        const result = await createTransaction(transactionData)
         setFormSuccess(result.message)
       }
 
@@ -185,11 +189,14 @@ export default function Portfolio() {
 
   async function handleExportCSV() {
     try {
-      const blob = await exportTransactionsCSV()
+      // Pass selectedPersonId to filter exports in family mode
+      const blob = await exportTransactionsCSV(selectedPersonId)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`
+      // Include person name in filename if filtering
+      const personSuffix = selectedPerson ? `_${selectedPerson.name.toLowerCase().replace(/\s+/g, '_')}` : ''
+      a.download = `transactions${personSuffix}_${new Date().toISOString().split('T')[0]}.csv`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
