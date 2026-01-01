@@ -11,7 +11,7 @@
 
 ---
 
-## Current Status (v0.3)
+## Current Status (v0.4)
 
 ### ✅ Implemented
 - [x] PDF Upload (Trade Republic tax reports)
@@ -39,6 +39,9 @@
 - [x] Robust PDF parsing (European decimals, concatenated numbers)
 - [x] Unit tests (45 tests: CGT, Exit Tax, parser)
 - [x] Deemed disposal tracking with time remaining and urgency alerts
+- [x] Family Mode - person management with Settings page
+- [x] Per-person filtering on Portfolio, Tax Calculator
+- [x] Person selector on PDF upload
 
 ---
 
@@ -67,32 +70,32 @@
 
 ---
 
-## Phase 2: Family/Joint Tax Returns 👨‍👩‍👧
+## Phase 2: Family/Joint Tax Returns 👨‍👩‍👧 ✅ DONE
 
-### 2.1 Multi-Person Support
-- [ ] Add "Person" entity (name, PPS number optional)
-- [ ] Default: Primary user + ability to add spouse
-- [ ] Each transaction linked to a person
-- [ ] Filter views by person
+### 2.1 Multi-Person Support ✅
+- [x] Add "Person" entity (name, PPS number optional)
+- [x] Default: Primary user + ability to add spouse
+- [x] Each transaction linked to a person
+- [x] Filter views by person
+- [x] Settings page for person management
 
-### 2.2 Separate Tracking
-- [ ] Portfolio view: "My Holdings" vs "Spouse Holdings" tabs
-- [ ] Transaction list: Person column with filter
-- [ ] Income: Split by person
-- [ ] Clear visual distinction (colors/icons)
+### 2.2 Separate Tracking ✅
+- [x] Portfolio view: Filter by person or "All" combined
+- [x] Transaction list: Filtered by person
+- [x] Income: Split by person
+- [x] Clear visual distinction (color-coded buttons)
 
-### 2.3 Individual Tax Calculations
-- [ ] CGT calculated separately per person
-- [ ] Each person gets their own €1,270 exemption
-- [ ] Exit Tax per person
-- [ ] DIRT per person (or combined if joint account)
-- [ ] Individual tax summaries
+### 2.3 Individual Tax Calculations ✅
+- [x] CGT calculated separately per person
+- [x] Each person gets their own €1,270 exemption
+- [x] Exit Tax per person
+- [x] DIRT per person
+- [x] Individual tax summaries via person filter
 
-### 2.4 Joint Filing View
-- [ ] Combined tax summary for Form 11
-- [ ] Show: Person 1 taxes + Person 2 taxes = Total
-- [ ] Joint Form 11 field reference
-- [ ] PDF export with both persons' data
+### 2.4 Joint Filing View ✅
+- [x] Combined tax summary (select "Combined" view)
+- [ ] PDF export with both persons' data (enhancement)
+- [ ] Joint Form 11 field reference with person breakdown (enhancement)
 
 ---
 
@@ -210,8 +213,8 @@
 |---------|--------|--------|----------|--------|
 | Unit Tests | High | Medium | **P0** | ✅ Done |
 | Deemed Disposal Tracking | High | Medium | **P1** | ✅ Done |
-| Family/Joint Returns | High | High | **P1** | Next |
-| Data Validation | Medium | Medium | **P1** | Pending |
+| Family/Joint Returns | High | High | **P1** | ✅ Done |
+| Data Validation | Medium | Medium | **P1** | Next |
 | Multi-Year Support | Medium | Medium | **P2** | Pending |
 | Tax Optimization Tools | Medium | High | **P3** | Pending |
 | Multiple Brokers | High | Very High | **Backlog** | Pending |
@@ -223,6 +226,7 @@
 
 1. ~~**Now**: Add unit tests for parser and calculators~~ ✅
 2. ~~**Then**: Deemed Disposal tracking~~ ✅
-3. **Now**: Implement Family/Joint returns
-4. **Next**: Data validation and error handling
-5. **Later**: Multi-year support
+3. ~~**Now**: Implement Family/Joint returns~~ ✅
+4. **Now**: Data validation and error handling
+5. **Next**: Multi-year support
+6. **Later**: Tax optimization tools
