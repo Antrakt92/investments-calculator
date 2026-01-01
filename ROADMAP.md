@@ -46,6 +46,7 @@
 ### 🔧 Recent Fixes (v0.4.2)
 - [x] **Combined View CGT Exemption**: Fixed critical bug - now correctly applies per-person €1,270 exemption in combined view (2 people = €2,540 total)
 - [x] **Duplicate Detection**: Both transactions and income events now include person_id check (allows same data for different family members)
+- [x] **Exit Tax Fee Handling**: Deemed disposals endpoint now includes fees in cost basis calculation
 - [x] Manual transactions now assigned to selected person in family mode
 - [x] CSV export respects person filter and includes Person column
 - [x] Dashboard person filtering (UX consistency with Portfolio/Tax)
@@ -189,11 +190,11 @@
 
 ### CRITICAL - Tax Calculation Bugs
 - [x] ~~**Combined View CGT Exemption**: Combined view uses single €1,270 exemption instead of per-person~~ FIXED
-- [ ] **Exit Tax Fee Handling**: Exit Tax calculations don't consistently include fees in cost basis
+- [x] ~~**Exit Tax Fee Handling**: Deemed disposals endpoint now includes fees in cost basis~~ FIXED
 
 ### HIGH Priority
 - [x] ~~**Income Event Duplicate Detection**: Fixed - duplicate detection now includes person_id~~ FIXED
-- [ ] **CSV Export Person Lookup**: lookupPersonName function may fail if person is deleted
+- [x] ~~**CSV Export Person Lookup**: Already safe - uses .get() with "Unassigned" fallback~~ VERIFIED
 
 ### Parser
 - [x] ~~European decimal format (7,00 → 7.00)~~ FIXED

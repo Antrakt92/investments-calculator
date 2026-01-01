@@ -440,7 +440,9 @@ async def get_deemed_disposals(
 
         for trans in transactions:
             qty = abs(trans.quantity)
-            unit_cost = trans.gross_amount / qty if qty > 0 else Decimal("0")
+            # Include fees in cost basis (allowable cost for tax purposes)
+            total_cost_with_fees = trans.gross_amount + trans.fees
+            unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
             exit_calc.add_acquisition(
                 isin=asset.isin,
                 name=asset.name,
