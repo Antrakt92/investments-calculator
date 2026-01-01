@@ -150,12 +150,12 @@
 
 ---
 
-## Phase 5: Polish & UX
+## Phase 5: Polish & UX ✅ PARTIAL
 
 ### 5.1 User Experience
-- [ ] Mobile-responsive design
+- [x] Mobile-responsive design (media queries for 768px, 480px breakpoints)
 - [ ] Keyboard shortcuts
-- [ ] Tooltips and help text everywhere
+- [x] Tooltips and help text everywhere (TAX_TERMS, HelpIcon component)
 - [ ] Onboarding tutorial
 
 ### 5.2 Data Management
@@ -214,7 +214,7 @@
 
 ### UI/UX
 - [x] ~~Dashboard person filtering (consistency with Portfolio/Tax pages)~~ FIXED
-- [ ] Dashboard layout on mobile
+- [x] ~~Dashboard layout on mobile~~ FIXED (responsive styles added)
 - [ ] Better error messages for failed uploads
 - [ ] Loading skeleton states
 - [ ] Transaction reassignment UI before deleting person
@@ -263,5 +263,7 @@
 11. ~~**Next**: Alerts & notifications (payment deadlines, deemed disposal warnings)~~ ✅ Done
 12. ~~**Next**: 4-week rule warning~~ ✅ Done
 13. ~~**Next**: JSON backup/restore~~ ✅ Done
-14. **Next**: Tax-efficient selling recommendations, tooltips/help text
-15. **Future**: Year comparison, portfolio analytics
+14. ~~**Next**: Tooltips/help text~~ ✅ Done
+15. ~~**Next**: Mobile responsive design~~ ✅ Done
+16. **Next**: Tax-efficient selling recommendations
+17. **Future**: Year comparison, portfolio analytics
