@@ -137,11 +137,16 @@ export interface TaxResult {
   }
 }
 
-export async function uploadPDF(file: File): Promise<UploadResponse> {
+export async function uploadPDF(file: File, personId?: number): Promise<UploadResponse> {
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(`${API_BASE}/upload/trade-republic-pdf`, {
+  // Add person_id as query parameter if provided
+  const url = personId
+    ? `${API_BASE}/upload/trade-republic-pdf?person_id=${personId}`
+    : `${API_BASE}/upload/trade-republic-pdf`
+
+  const response = await fetch(url, {
     method: 'POST',
     body: formData,
   })

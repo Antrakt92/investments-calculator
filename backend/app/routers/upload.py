@@ -13,9 +13,13 @@ from ..schemas import UploadResponse
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 
+from typing import Optional
+from fastapi import Query
+
 @router.post("/trade-republic-pdf")
 async def upload_trade_republic_pdf(
     file: UploadFile = File(...),
+    person_id: Optional[int] = Query(None, description="Person ID for family tax returns"),
     db: Session = Depends(get_db)
 ):
     """
@@ -88,6 +92,7 @@ async def upload_trade_republic_pdf(
 
             db_trans = Transaction(
                 asset_id=asset.id,
+                person_id=person_id,  # For family tax returns
                 transaction_type=trans_type,
                 transaction_date=trans.transaction_date,
                 settlement_date=trans.settlement_date,
@@ -134,6 +139,7 @@ async def upload_trade_republic_pdf(
 
             income_event = IncomeEvent(
                 asset_id=asset_id,
+                person_id=person_id,  # For family tax returns
                 income_type=income.income_type.lower(),
                 payment_date=income.payment_date,
                 gross_amount=income.gross_amount,

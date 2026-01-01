@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { uploadPDF, clearAllData, type UploadResponse } from '../services/api'
+import { useState, useRef, useEffect } from 'react'
+import { uploadPDF, clearAllData, getPersons, type UploadResponse, type Person } from '../services/api'
 
 export default function Upload() {
   const [uploading, setUploading] = useState(false)
@@ -9,6 +9,33 @@ export default function Upload() {
   const [clearMessage, setClearMessage] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Family mode state
+  const [persons, setPersons] = useState<Person[]>([])
+  const [selectedPersonId, setSelectedPersonId] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    loadPersons()
+  }, [])
+
+  async function loadPersons() {
+    try {
+      const data = await getPersons()
+      setPersons(data)
+      // Default to primary person if exists
+      const primary = data.find(p => p.is_primary)
+      if (primary) {
+        setSelectedPersonId(primary.id)
+      } else if (data.length > 0) {
+        setSelectedPersonId(data[0].id)
+      }
+    } catch {
+      // Ignore - persons feature may not be set up yet
+    }
+  }
+
+  const isFamilyMode = persons.length > 1
+  const selectedPerson = persons.find(p => p.id === selectedPersonId)
 
   async function handleFile(file: File) {
     if (!file.name.endsWith('.pdf')) {
@@ -21,7 +48,8 @@ export default function Upload() {
       setError(null)
       setResult(null)
       setClearMessage(null)
-      const response = await uploadPDF(file)
+      // Pass person_id if family mode is enabled
+      const response = await uploadPDF(file, isFamilyMode ? selectedPersonId : undefined)
       setResult(response)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -75,6 +103,58 @@ export default function Upload() {
     <div>
       <h1 style={{ marginBottom: '24px' }}>Upload Trade Republic Tax Report</h1>
 
+      {/* Person Selector - only shown in family mode */}
+      {isFamilyMode && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 500 }}>Importing for:</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {persons.map(person => (
+                <button
+                  key={person.id}
+                  onClick={() => setSelectedPersonId(person.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: selectedPersonId === person.id
+                      ? `2px solid ${person.color}`
+                      : '2px solid var(--border-color)',
+                    background: selectedPersonId === person.id
+                      ? `${person.color}15`
+                      : 'var(--bg-white)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: person.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {person.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span style={{ fontWeight: selectedPersonId === person.id ? 600 : 400 }}>
+                    {person.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div
           className={`upload-zone ${dragActive ? 'active' : ''}`}
@@ -124,6 +204,17 @@ export default function Upload() {
           <div style={{ marginTop: '24px' }}>
             <div className="alert alert-success">
               <strong>Upload successful!</strong>
+              {isFamilyMode && selectedPerson && (
+                <p style={{ marginTop: '8px' }}>
+                  Imported for: <span style={{
+                    fontWeight: 600,
+                    color: selectedPerson.color,
+                    background: `${selectedPerson.color}15`,
+                    padding: '2px 8px',
+                    borderRadius: '4px'
+                  }}>{selectedPerson.name}</span>
+                </p>
+              )}
               <p style={{ marginTop: '8px' }}>
                 Tax Year: <strong>{result.tax_year}</strong> ({result.period.start} to {result.period.end})
               </p>
