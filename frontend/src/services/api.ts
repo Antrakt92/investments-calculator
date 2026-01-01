@@ -399,6 +399,76 @@ export async function getAvailableYears(personId?: number): Promise<AvailableYea
   return response.json()
 }
 
+// ===== Tax Planning Tools =====
+
+export interface WhatIfResult {
+  isin: string
+  asset_name: string
+  tax_type: string
+  scenario: {
+    quantity_to_sell: number
+    sale_price_per_unit: number
+    total_proceeds: number
+  }
+  cost_basis: {
+    total: number
+    average_per_unit: number
+    lots_used: Array<{
+      acquisition_date: string
+      quantity: number
+      unit_cost: number
+      cost_basis: number
+    }>
+  }
+  result: {
+    gain_loss: number
+    is_gain: boolean
+    tax_rate: string
+    estimated_tax: number
+    exemption_info: string
+  }
+  available_quantity: number
+  note: string
+}
+
+export async function calculateWhatIf(
+  isin: string,
+  quantity: number,
+  salePrice: number,
+  personId?: number
+): Promise<WhatIfResult> {
+  const params = new URLSearchParams()
+  params.set('quantity', quantity.toString())
+  params.set('sale_price', salePrice.toString())
+  if (personId !== undefined) params.set('person_id', personId.toString())
+
+  const response = await fetch(`${API_BASE}/tax/what-if/${isin}?${params}`)
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to calculate what-if scenario')
+  }
+  return response.json()
+}
+
+export interface LossHarvestingOpportunity {
+  isin: string
+  name: string
+  tax_type: string
+  quantity: number
+  average_cost: number
+  total_cost_basis: number
+  current_price: number | null
+  unrealized_gain_loss: number | null
+  note: string
+}
+
+export async function getLossHarvestingOpportunities(personId?: number): Promise<LossHarvestingOpportunity[]> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/loss-harvesting${params}`)
+  if (!response.ok) throw new Error('Failed to fetch loss harvesting opportunities')
+  return response.json()
+}
+
 // ===== Person Management (Family Tax Returns) =====
 
 export interface Person {

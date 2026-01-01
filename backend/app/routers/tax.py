@@ -417,6 +417,238 @@ async def calculate_tax(
     }
 
 
+@router.get("/what-if/{isin}")
+async def calculate_what_if(
+    isin: str,
+    quantity: Decimal = Query(..., description="Quantity to hypothetically sell"),
+    sale_price: Decimal = Query(..., description="Hypothetical sale price per unit"),
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Calculate estimated tax if you sold a position.
+
+    Returns breakdown of:
+    - Cost basis that would be used (FIFO)
+    - Estimated gain/loss
+    - Estimated tax (CGT 33% or Exit Tax 41%)
+    - Whether annual exemption would apply
+    """
+    # Get the asset
+    asset = db.query(Asset).filter(Asset.isin == isin).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"Asset {isin} not found")
+
+    # Determine if Exit Tax or CGT
+    is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(asset.isin, asset.name)
+    tax_type = "Exit Tax" if is_exit_tax else "CGT"
+    tax_rate = Decimal("0.41") if is_exit_tax else Decimal("0.33")
+
+    # Get all buy transactions for this asset to calculate cost basis
+    buy_query = db.query(Transaction).filter(
+        Transaction.asset_id == asset.id,
+        Transaction.transaction_type == TransactionType.BUY
+    )
+    if person_id is not None:
+        buy_query = buy_query.filter(Transaction.person_id == person_id)
+    buys = buy_query.order_by(Transaction.transaction_date).all()
+
+    # Get all sell transactions to see what's already been sold
+    sell_query = db.query(Transaction).filter(
+        Transaction.asset_id == asset.id,
+        Transaction.transaction_type == TransactionType.SELL
+    )
+    if person_id is not None:
+        sell_query = sell_query.filter(Transaction.person_id == person_id)
+    sells = sell_query.order_by(Transaction.transaction_date).all()
+
+    # Build remaining lots using FIFO
+    lots = []
+    for buy in buys:
+        qty = abs(buy.quantity)
+        total_cost_with_fees = buy.gross_amount + buy.fees
+        unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
+        lots.append({
+            "date": buy.transaction_date,
+            "quantity": qty,
+            "remaining": qty,
+            "unit_cost": unit_cost
+        })
+
+    # Apply existing sells using FIFO
+    for sell in sells:
+        qty_to_match = abs(sell.quantity)
+        for lot in lots:
+            if qty_to_match <= 0:
+                break
+            if lot["remaining"] > 0:
+                matched = min(qty_to_match, lot["remaining"])
+                lot["remaining"] -= matched
+                qty_to_match -= matched
+
+    # Calculate available quantity
+    available_qty = sum(lot["remaining"] for lot in lots)
+
+    if quantity > available_qty:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot sell {quantity} units. Only {float(available_qty):.4f} available."
+        )
+
+    # Calculate cost basis for hypothetical sale using FIFO
+    qty_to_sell = quantity
+    total_cost_basis = Decimal("0")
+    lots_used = []
+
+    for lot in lots:
+        if qty_to_sell <= 0:
+            break
+        if lot["remaining"] > 0:
+            matched = min(qty_to_sell, lot["remaining"])
+            cost_for_lot = matched * lot["unit_cost"]
+            total_cost_basis += cost_for_lot
+            lots_used.append({
+                "acquisition_date": lot["date"].isoformat(),
+                "quantity": float(matched),
+                "unit_cost": float(lot["unit_cost"]),
+                "cost_basis": float(cost_for_lot)
+            })
+            qty_to_sell -= matched
+
+    # Calculate proceeds and gain/loss
+    total_proceeds = quantity * sale_price
+    gain_loss = total_proceeds - total_cost_basis
+
+    # Calculate estimated tax
+    if is_exit_tax:
+        # Exit Tax: No exemption, losses can offset gains within Exit Tax regime
+        taxable_amount = max(Decimal("0"), gain_loss)
+        estimated_tax = (taxable_amount * tax_rate).quantize(Decimal("0.01"))
+        exemption_info = "No annual exemption for Exit Tax"
+    else:
+        # CGT: €1,270 annual exemption available
+        annual_exemption = Decimal("1270")
+        if gain_loss > 0:
+            taxable_after_exemption = max(Decimal("0"), gain_loss - annual_exemption)
+            estimated_tax = (taxable_after_exemption * tax_rate).quantize(Decimal("0.01"))
+            exemption_used = min(gain_loss, annual_exemption)
+            exemption_info = f"€{float(exemption_used):.2f} of €1,270 exemption could be used"
+        else:
+            estimated_tax = Decimal("0")
+            exemption_info = "No tax on losses. Loss can be carried forward."
+
+    return {
+        "isin": isin,
+        "asset_name": asset.name,
+        "tax_type": tax_type,
+        "scenario": {
+            "quantity_to_sell": float(quantity),
+            "sale_price_per_unit": float(sale_price),
+            "total_proceeds": float(total_proceeds)
+        },
+        "cost_basis": {
+            "total": float(total_cost_basis),
+            "average_per_unit": float(total_cost_basis / quantity) if quantity > 0 else 0,
+            "lots_used": lots_used
+        },
+        "result": {
+            "gain_loss": float(gain_loss),
+            "is_gain": gain_loss > 0,
+            "tax_rate": f"{int(tax_rate * 100)}%",
+            "estimated_tax": float(estimated_tax),
+            "exemption_info": exemption_info
+        },
+        "available_quantity": float(available_qty),
+        "note": f"This is an estimate. Actual tax depends on other {tax_type} transactions in the tax year."
+    }
+
+
+@router.get("/loss-harvesting")
+async def get_loss_harvesting_opportunities(
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
+    db: Session = Depends(get_db)
+) -> list[dict]:
+    """
+    Identify positions with unrealized losses that could be harvested.
+
+    Loss harvesting = selling at a loss to offset gains, reducing tax bill.
+    Note: Watch out for the 4-week "bed & breakfast" rule if you rebuy.
+    """
+    opportunities = []
+
+    assets = db.query(Asset).all()
+
+    for asset in assets:
+        # Get all transactions for this asset
+        buy_query = db.query(Transaction).filter(
+            Transaction.asset_id == asset.id,
+            Transaction.transaction_type == TransactionType.BUY
+        )
+        sell_query = db.query(Transaction).filter(
+            Transaction.asset_id == asset.id,
+            Transaction.transaction_type == TransactionType.SELL
+        )
+
+        if person_id is not None:
+            buy_query = buy_query.filter(Transaction.person_id == person_id)
+            sell_query = sell_query.filter(Transaction.person_id == person_id)
+
+        buys = buy_query.order_by(Transaction.transaction_date).all()
+        sells = sell_query.order_by(Transaction.transaction_date).all()
+
+        if not buys:
+            continue
+
+        # Build remaining lots using FIFO
+        lots = []
+        for buy in buys:
+            qty = abs(buy.quantity)
+            total_cost_with_fees = buy.gross_amount + buy.fees
+            unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
+            lots.append({
+                "date": buy.transaction_date,
+                "quantity": qty,
+                "remaining": qty,
+                "unit_cost": unit_cost
+            })
+
+        # Apply existing sells using FIFO
+        for sell in sells:
+            qty_to_match = abs(sell.quantity)
+            for lot in lots:
+                if qty_to_match <= 0:
+                    break
+                if lot["remaining"] > 0:
+                    matched = min(qty_to_match, lot["remaining"])
+                    lot["remaining"] -= matched
+                    qty_to_match -= matched
+
+        # Calculate remaining position
+        remaining_qty = sum(lot["remaining"] for lot in lots)
+        if remaining_qty <= 0:
+            continue
+
+        remaining_cost = sum(lot["remaining"] * lot["unit_cost"] for lot in lots)
+        avg_cost = remaining_cost / remaining_qty if remaining_qty > 0 else Decimal("0")
+
+        # Determine tax type
+        is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(asset.isin, asset.name)
+
+        opportunities.append({
+            "isin": asset.isin,
+            "name": asset.name,
+            "tax_type": "Exit Tax" if is_exit_tax else "CGT",
+            "quantity": float(remaining_qty),
+            "average_cost": float(avg_cost),
+            "total_cost_basis": float(remaining_cost),
+            "current_price": None,  # Would need market data
+            "unrealized_gain_loss": None,  # Would need market data
+            "note": "Enter current price to see potential tax savings"
+        })
+
+    return opportunities
+
+
 @router.get("/available-years")
 async def get_available_years(
     person_id: Optional[int] = Query(None, description="Person ID for family mode"),

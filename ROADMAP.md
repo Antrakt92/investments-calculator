@@ -131,12 +131,13 @@
 
 ---
 
-## Phase 4: Tax Optimization
+## Phase 4: Tax Optimization 🚧 IN PROGRESS
 
 ### 4.1 Tax Planning Tools
-- [ ] Show potential tax savings opportunities
-- [ ] Loss harvesting suggestions
-- [ ] "What-if" scenarios (sell X shares = Y tax)
+- [x] "What-if" scenarios (sell X shares = Y tax) - `/tax/what-if/{isin}` endpoint
+- [x] Loss harvesting suggestions - `/tax/loss-harvesting` endpoint
+- [ ] What-if scenario UI component
+- [ ] Loss harvesting UI component
 - [ ] Tax-efficient selling order recommendations
 
 ### 4.2 Alerts & Notifications
@@ -238,7 +239,7 @@
 | Family/Joint Returns | High | High | **P1** | ✅ Done |
 | Data Validation | Medium | Medium | **P1** | ✅ Done |
 | Multi-Year Support | Medium | Medium | **P2** | ✅ Partial |
-| Tax Optimization Tools | Medium | High | **P3** | Pending |
+| Tax Optimization Tools | Medium | High | **P3** | 🚧 Backend APIs |
 | Multiple Brokers | High | Very High | **Backlog** | Pending |
 | Portfolio Analytics | Low | High | **Backlog** | Pending |
 
@@ -255,5 +256,6 @@
 7. ~~**CRITICAL**: Fix Combined View CGT exemption bug (per-person exemptions)~~ ✅
 8. ~~**HIGH**: Add income event duplicate detection~~ ✅
 9. ~~**Then**: Multi-year support (Phase 3)~~ ✅ Partial
-10. **Next**: Tax optimization tools (Phase 4)
-11. **Future**: Year comparison, portfolio analytics
+10. ~~**Next**: Tax optimization tools (Phase 4)~~ 🚧 Backend APIs complete
+11. **Next**: Build UI for what-if calculator and loss harvesting
+12. **Future**: Year comparison, portfolio analytics
