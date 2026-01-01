@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { calculateTax, getDeemedDisposals, getLossesCarryForward, getPersons, getAvailableYears, type TaxResult, type Person } from '../services/api'
 import { exportTaxReportPDF } from '../utils/pdfExport'
+import { HelpIcon, TAX_TERMS } from '../components/Tooltip'
 
 export default function TaxCalculator() {
   // Dynamic year selection
@@ -241,8 +242,9 @@ export default function TaxCalculator() {
             </div>
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center' }}>
               CGT Losses Carried Forward
+              <HelpIcon text="Unused losses from previous years can be carried forward indefinitely to offset future CGT gains. Exit Tax losses are separate and cannot be used here." />
               {lossesAutoLoaded && (
                 <span style={{ fontSize: '11px', color: 'var(--success)', marginLeft: '8px' }}>
                   (auto-loaded from {taxYear - 1})
@@ -362,6 +364,7 @@ export default function TaxCalculator() {
             <div className="tax-section">
               <div className="tax-section-title">
                 1. Capital Gains Tax (CGT) - Stocks
+                <HelpIcon text={TAX_TERMS.CGT} />
                 <span className="tax-rate-badge">33%</span>
               </div>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
@@ -428,6 +431,7 @@ export default function TaxCalculator() {
             <div className="tax-section">
               <div className="tax-section-title">
                 2. Exit Tax (EU Funds)
+                <HelpIcon text={TAX_TERMS.EXIT_TAX} />
                 <span className="tax-rate-badge" style={{ background: 'var(--danger)' }}>41%</span>
               </div>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
@@ -492,6 +496,7 @@ export default function TaxCalculator() {
             <div className="tax-section">
               <div className="tax-section-title">
                 3. DIRT (Deposit Interest)
+                <HelpIcon text={TAX_TERMS.DIRT} />
                 <span className="tax-rate-badge">33%</span>
               </div>
               <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
@@ -527,6 +532,7 @@ export default function TaxCalculator() {
             <div className="tax-section">
               <div className="tax-section-title">
                 4. Dividends (Foreign Income)
+                <HelpIcon text={TAX_TERMS.WITHHOLDING_TAX} />
                 <span className="tax-rate-badge" style={{ background: 'var(--warning)' }}>Marginal Rate</span>
               </div>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
@@ -585,7 +591,10 @@ export default function TaxCalculator() {
 
           {/* Form 11 Guidance */}
           <div className="card">
-            <h2 className="card-title">Form 11 Field Reference</h2>
+            <h2 className="card-title" style={{ display: 'flex', alignItems: 'center' }}>
+              Form 11 Field Reference
+              <HelpIcon text={TAX_TERMS.FORM_11} />
+            </h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
               Use these values when completing your Revenue Online Service (ROS) Form 11:
             </p>
@@ -679,7 +688,10 @@ export default function TaxCalculator() {
           {/* Upcoming Deemed Disposals */}
           {deemedDisposals.length > 0 && (
             <div className="card">
-              <h2 className="card-title">⏰ Upcoming Deemed Disposals (8-Year Rule)</h2>
+              <h2 className="card-title" style={{ display: 'flex', alignItems: 'center' }}>
+                ⏰ Upcoming Deemed Disposals (8-Year Rule)
+                <HelpIcon text={TAX_TERMS.DEEMED_DISPOSAL} />
+              </h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
                 EU funds held for 8 years trigger a "deemed disposal" - you pay Exit Tax as if you sold, even if you didn't.
                 Plan ahead to have funds available for the tax payment.

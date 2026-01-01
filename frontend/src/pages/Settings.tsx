@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   getPersons,
   createPerson,
   updatePerson,
   deletePerson,
   setPrimaryPerson,
+  exportBackup,
+  importBackup,
   type Person,
   type PersonCreate,
+  type BackupData,
 } from '../services/api'
 
 const COLORS = [
@@ -29,6 +32,11 @@ export default function Settings() {
   const [formName, setFormName] = useState('')
   const [formColor, setFormColor] = useState(COLORS[1]) // Pink for spouse by default
   const [formPPS, setFormPPS] = useState('')
+
+  // Backup/restore state
+  const [backupLoading, setBackupLoading] = useState(false)
+  const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadPersons()
@@ -117,6 +125,70 @@ export default function Settings() {
     setFormName('')
     setFormPPS('')
     setFormColor(COLORS[1])
+  }
+
+  async function handleExportBackup() {
+    try {
+      setBackupLoading(true)
+      setBackupMessage(null)
+      const data = await exportBackup()
+
+      // Create downloadable file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `tax-calculator-backup-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setBackupMessage({
+        type: 'success',
+        text: `Backup created: ${data.counts.persons} persons, ${data.counts.assets} assets, ${data.counts.transactions} transactions, ${data.counts.income_events} income events`
+      })
+    } catch (err) {
+      setBackupMessage({ type: 'error', text: err instanceof Error ? err.message : 'Export failed' })
+    } finally {
+      setBackupLoading(false)
+    }
+  }
+
+  async function handleImportBackup(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      setBackupLoading(true)
+      setBackupMessage(null)
+
+      const text = await file.text()
+      const data = JSON.parse(text) as BackupData
+
+      if (!data.export_version || !data.data) {
+        throw new Error('Invalid backup file format')
+      }
+
+      const shouldClear = window.confirm(
+        'Do you want to REPLACE all existing data?\n\n' +
+        'Click OK to replace everything with the backup.\n' +
+        'Click Cancel to MERGE the backup with existing data (duplicates will be skipped).'
+      )
+
+      const result = await importBackup(data, shouldClear)
+      setBackupMessage({ type: 'success', text: result.message })
+
+      // Reload persons
+      loadPersons()
+    } catch (err) {
+      setBackupMessage({ type: 'error', text: err instanceof Error ? err.message : 'Import failed' })
+    } finally {
+      setBackupLoading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
   }
 
   const isFamilyMode = persons.length > 1
@@ -359,6 +431,70 @@ export default function Settings() {
             Each person&apos;s taxes are calculated separately with their own exemptions.
           </div>
         )}
+      </div>
+
+      {/* Backup & Restore Section */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <h2 className="card-title">
+          <span style={{ marginRight: '8px' }}>💾</span>
+          Backup & Restore
+        </h2>
+
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          Export your data as a JSON file for backup, or import from a previous backup.
+        </p>
+
+        {backupMessage && (
+          <div
+            className={`alert ${backupMessage.type === 'success' ? 'alert-success' : 'alert-error'}`}
+            style={{ marginBottom: '16px' }}
+          >
+            {backupMessage.text}
+            <button
+              onClick={() => setBackupMessage(null)}
+              style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleExportBackup}
+            disabled={backupLoading}
+          >
+            {backupLoading ? 'Exporting...' : 'Export Backup'}
+          </button>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".json"
+            onChange={handleImportBackup}
+            style={{ display: 'none' }}
+          />
+          <button
+            className="btn btn-secondary"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={backupLoading}
+          >
+            {backupLoading ? 'Importing...' : 'Import Backup'}
+          </button>
+        </div>
+
+        <div style={{
+          marginTop: '16px',
+          padding: '12px',
+          background: 'var(--bg-secondary)',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: 'var(--text-secondary)'
+        }}>
+          <strong>Tip:</strong> Export includes all persons, assets, transactions, and income events.
+          When importing, you can choose to replace all data or merge with existing data.
+        </div>
       </div>
 
       {/* About Section */}

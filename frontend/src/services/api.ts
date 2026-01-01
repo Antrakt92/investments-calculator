@@ -54,6 +54,76 @@ export async function clearAllData(): Promise<{
   return response.json()
 }
 
+// ===== Backup / Restore =====
+
+export interface BackupData {
+  export_version: string
+  export_date: string
+  data: {
+    persons: Array<{ id: number; name: string; is_primary: boolean; pps_number: string | null; color: string }>
+    assets: Array<{ id: number; isin: string; name: string; asset_type: string; is_eu_fund: boolean }>
+    transactions: Array<{
+      id: number
+      asset_id: number
+      person_id: number | null
+      transaction_type: string
+      transaction_date: string
+      quantity: number
+      gross_amount: number
+      fees: number
+      notes: string | null
+    }>
+    income_events: Array<{
+      id: number
+      asset_id: number
+      person_id: number | null
+      income_type: string
+      payment_date: string
+      gross_amount: number
+      tax_withheld: number
+      net_amount: number
+      tax_credit: number
+    }>
+  }
+  counts: {
+    persons: number
+    assets: number
+    transactions: number
+    income_events: number
+  }
+}
+
+export async function exportBackup(): Promise<BackupData> {
+  const response = await fetch(`${API_BASE}/upload/export-json`)
+  if (!response.ok) throw new Error('Failed to export backup')
+  return response.json()
+}
+
+export async function importBackup(data: BackupData, clearExisting: boolean = false): Promise<{
+  success: boolean
+  imported: {
+    persons: number
+    assets: number
+    transactions: number
+    income_events: number
+  }
+  message: string
+}> {
+  const url = clearExisting
+    ? `${API_BASE}/upload/import-json?clear_existing=true`
+    : `${API_BASE}/upload/import-json`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to import backup')
+  }
+  return response.json()
+}
+
 export interface Holding {
   isin: string
   name: string
@@ -466,6 +536,116 @@ export async function getLossHarvestingOpportunities(personId?: number): Promise
   const params = personId !== undefined ? `?person_id=${personId}` : ''
   const response = await fetch(`${API_BASE}/tax/loss-harvesting${params}`)
   if (!response.ok) throw new Error('Failed to fetch loss harvesting opportunities')
+  return response.json()
+}
+
+// ===== Tax-Efficient Selling Recommendations =====
+
+export interface SellingRecommendation {
+  type: 'info' | 'warning'
+  title: string
+  message: string
+}
+
+export interface LotDetail {
+  lot_number: number
+  acquisition_date: string
+  quantity: number
+  unit_cost: number
+  total_cost: number
+  days_held: number
+  fifo_priority: number
+}
+
+export interface StrategyOrder {
+  acquisition_date: string
+  quantity: number
+  unit_cost: number
+}
+
+export interface SellingStrategy {
+  name: string
+  description: string
+  order: StrategyOrder[]
+  is_default: boolean
+  note: string
+}
+
+export interface SellingRecommendations {
+  isin: string
+  asset_name: string
+  tax_type: string
+  tax_rate: string
+  total_quantity: number
+  total_cost_basis: number
+  average_cost: number
+  lots: LotDetail[]
+  strategies: {
+    fifo: SellingStrategy
+    highest_cost_first: SellingStrategy
+    lowest_cost_first: SellingStrategy
+  }
+  recommendations: SellingRecommendation[]
+  note: string
+}
+
+export async function getSellingRecommendations(
+  isin: string,
+  personId?: number
+): Promise<SellingRecommendations> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/selling-recommendations/${isin}${params}`)
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to fetch selling recommendations')
+  }
+  return response.json()
+}
+
+// ===== Bed & Breakfast Rule (4-Week Warning) =====
+
+export interface BedBreakfastCheck {
+  has_warning: boolean
+  isin: string
+  asset_name?: string
+  message: string
+  recent_sale?: {
+    date: string
+    quantity: number
+    proceeds: number
+  }
+  bed_breakfast_end_date?: string
+  days_remaining?: number
+  safe_to_buy_date?: string
+}
+
+export interface RecentSale {
+  isin: string
+  name: string
+  is_exit_tax: boolean
+  bed_breakfast_applies: boolean
+  sales: Array<{
+    date: string
+    quantity: number
+    proceeds: number
+    days_remaining: number
+    safe_to_buy_date: string
+  }>
+}
+
+export async function checkBedBreakfastRule(isin: string, personId?: number): Promise<BedBreakfastCheck> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/bed-breakfast-check/${isin}${params}`)
+  if (!response.ok) throw new Error('Failed to check bed & breakfast rule')
+  return response.json()
+}
+
+export async function getRecentSales(days: number = 28, personId?: number): Promise<RecentSale[]> {
+  const params = new URLSearchParams()
+  params.set('days', days.toString())
+  if (personId !== undefined) params.set('person_id', personId.toString())
+  const response = await fetch(`${API_BASE}/tax/recent-sales?${params}`)
+  if (!response.ok) throw new Error('Failed to fetch recent sales')
   return response.json()
 }
 

@@ -131,33 +131,36 @@
 
 ---
 
-## Phase 4: Tax Optimization ✅ PARTIAL
+## Phase 4: Tax Optimization ✅ DONE
 
-### 4.1 Tax Planning Tools
+### 4.1 Tax Planning Tools ✅ DONE
 - [x] "What-if" scenarios (sell X shares = Y tax) - `/tax/what-if/{isin}` endpoint
 - [x] Loss harvesting suggestions - `/tax/loss-harvesting` endpoint
 - [x] What-if scenario UI component - `/planning` page
 - [x] Loss harvesting UI component - `/planning` page
-- [ ] Tax-efficient selling order recommendations
+- [x] Tax-efficient selling recommendations - `/tax/selling-recommendations/{isin}` endpoint + "Selling Guide" tab
 
-### 4.2 Alerts & Notifications
-- [ ] Payment deadline reminders (Dec 15, Oct 31)
-- [ ] Deemed disposal warnings (30/60/90 days before)
-- [ ] 4-week rule warnings before re-buying
+### 4.2 Alerts & Notifications ✅ DONE
+- [x] Payment deadline reminders with urgency (days countdown, color-coded)
+- [x] Deemed disposal warnings (30/60/90 days with escalating urgency)
+- [x] Family Mode setup hint on Dashboard
+- [x] 4-week bed & breakfast rule warnings on Dashboard
+  - Backend: `/tax/bed-breakfast-check/{isin}` and `/tax/recent-sales` endpoints
+  - Frontend: Dashboard shows recent sales with countdown to safe repurchase date
 
 ---
 
-## Phase 5: Polish & UX
+## Phase 5: Polish & UX ✅ PARTIAL
 
 ### 5.1 User Experience
-- [ ] Mobile-responsive design
+- [x] Mobile-responsive design (media queries for 768px, 480px breakpoints)
 - [ ] Keyboard shortcuts
-- [ ] Tooltips and help text everywhere
+- [x] Tooltips and help text everywhere (TAX_TERMS, HelpIcon component)
 - [ ] Onboarding tutorial
 
 ### 5.2 Data Management
-- [ ] Export all data as JSON backup
-- [ ] Import from JSON backup
+- [x] Export all data as JSON backup - Settings page
+- [x] Import from JSON backup - Settings page (with merge/replace option)
 - [ ] Auto-backup before destructive operations
 - [ ] Data encryption at rest
 
@@ -211,7 +214,7 @@
 
 ### UI/UX
 - [x] ~~Dashboard person filtering (consistency with Portfolio/Tax pages)~~ FIXED
-- [ ] Dashboard layout on mobile
+- [x] ~~Dashboard layout on mobile~~ FIXED (responsive styles added)
 - [ ] Better error messages for failed uploads
 - [ ] Loading skeleton states
 - [ ] Transaction reassignment UI before deleting person
@@ -257,5 +260,10 @@
 8. ~~**HIGH**: Add income event duplicate detection~~ ✅
 9. ~~**Then**: Multi-year support (Phase 3)~~ ✅ Partial
 10. ~~**Next**: Tax optimization tools (Phase 4)~~ ✅ Core features complete
-11. **Next**: Alerts & notifications (payment deadlines, deemed disposal warnings)
-12. **Future**: Year comparison, portfolio analytics
+11. ~~**Next**: Alerts & notifications (payment deadlines, deemed disposal warnings)~~ ✅ Done
+12. ~~**Next**: 4-week rule warning~~ ✅ Done
+13. ~~**Next**: JSON backup/restore~~ ✅ Done
+14. ~~**Next**: Tooltips/help text~~ ✅ Done
+15. ~~**Next**: Mobile responsive design~~ ✅ Done
+16. ~~**Next**: Tax-efficient selling recommendations~~ ✅ Done
+17. **Future**: Year comparison, portfolio analytics
