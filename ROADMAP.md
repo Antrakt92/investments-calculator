@@ -11,7 +11,7 @@
 
 ---
 
-## Current Status (v0.4)
+## Current Status (v0.4.1)
 
 ### ✅ Implemented
 - [x] PDF Upload (Trade Republic tax reports)
@@ -26,11 +26,11 @@
 - [x] Upload verification summary
 - [x] Income tracking (Interest + Dividends)
 - [x] Improved Dashboard with tax breakdown
-- [x] Manual transaction entry (Buy/Sell)
+- [x] Manual transaction entry (Buy/Sell) with person assignment
 - [x] Edit existing transactions
 - [x] Delete individual transactions
 - [x] Transaction form with validation
-- [x] CSV export for transactions
+- [x] CSV export for transactions (with person filter)
 - [x] Print-friendly tax summary
 - [x] CGT loss carry forward input
 - [x] PDF export for tax reports
@@ -42,6 +42,10 @@
 - [x] Family Mode - person management with Settings page
 - [x] Per-person filtering on Portfolio, Tax Calculator
 - [x] Person selector on PDF upload
+
+### 🔧 Recent Fixes (v0.4.1)
+- [x] Manual transactions now assigned to selected person in family mode
+- [x] CSV export respects person filter and includes Person column
 
 ---
 
@@ -189,9 +193,11 @@
 - [ ] Validate Form 11 field mappings with accountant
 
 ### UI/UX
+- [x] ~~Dashboard person filtering (consistency with Portfolio/Tax pages)~~ FIXED
 - [ ] Dashboard layout on mobile
 - [ ] Better error messages for failed uploads
 - [ ] Loading skeleton states
+- [ ] Transaction reassignment UI before deleting person
 
 ---
 
@@ -227,6 +233,8 @@
 1. ~~**Now**: Add unit tests for parser and calculators~~ ✅
 2. ~~**Then**: Deemed Disposal tracking~~ ✅
 3. ~~**Now**: Implement Family/Joint returns~~ ✅
-4. **Now**: Data validation and error handling
-5. **Next**: Multi-year support
-6. **Later**: Tax optimization tools
+4. ~~**Now**: Fix person_id bugs in manual transactions/CSV~~ ✅
+5. ~~**Now**: Dashboard person filtering (UX consistency)~~ ✅
+6. **Now**: Data validation and error handling
+7. **Next**: Multi-year support
+8. **Later**: Tax optimization tools

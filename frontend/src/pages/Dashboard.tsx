@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, getDeemedDisposals, type Holding, type TaxResult, type IncomeEvent } from '../services/api'
+import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, getDeemedDisposals, getPersons, type Holding, type TaxResult, type IncomeEvent, type Person } from '../services/api'
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<{
@@ -14,21 +14,42 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Family mode state
+  const [persons, setPersons] = useState<Person[]>([])
+  const [selectedPersonId, setSelectedPersonId] = useState<number | undefined>(undefined)
+
   // Default to 2024 (most recent complete tax year)
   const taxYear = 2024
 
+  // Load persons on mount
+  useEffect(() => {
+    async function loadPersons() {
+      try {
+        const data = await getPersons()
+        setPersons(data)
+      } catch {
+        // Ignore - persons feature may not be set up yet
+      }
+    }
+    loadPersons()
+  }, [])
+
+  const isFamilyMode = persons.length > 1
+  const selectedPerson = persons.find(p => p.id === selectedPersonId)
+
+  // Reload data when person selection changes
   useEffect(() => {
     loadData()
-  }, [])
+  }, [selectedPersonId])
 
   async function loadData() {
     try {
       setLoading(true)
       const [summaryData, holdingsData, incomeData, disposals] = await Promise.all([
         getPortfolioSummary(),
-        getHoldings(),
-        getIncomeEvents({ limit: 100 }),
-        getDeemedDisposals(2), // Get disposals within next 2 years
+        getHoldings(selectedPersonId),
+        getIncomeEvents({ limit: 100, person_id: selectedPersonId }),
+        getDeemedDisposals(2, selectedPersonId), // Get disposals within next 2 years
       ])
       setSummary(summaryData)
       setHoldings(holdingsData)
@@ -37,7 +58,7 @@ export default function Dashboard() {
 
       // Calculate tax for 2024
       try {
-        const tax = await calculateTax(taxYear)
+        const tax = await calculateTax(taxYear, 0, selectedPersonId)
         setTaxResult(tax)
       } catch {
         // No data for tax calculation yet
@@ -95,7 +116,98 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 style={{ marginBottom: '24px' }}>Dashboard - Tax Year {taxYear}</h1>
+      <h1 style={{ marginBottom: '24px' }}>
+        Dashboard - Tax Year {taxYear}
+        {isFamilyMode && selectedPerson && (
+          <span style={{
+            fontSize: '18px',
+            fontWeight: 400,
+            color: selectedPerson.color,
+            marginLeft: '12px',
+          }}>
+            ({selectedPerson.name})
+          </span>
+        )}
+      </h1>
+
+      {/* Person Filter - only shown in family mode */}
+      {isFamilyMode && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 500 }}>Viewing:</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setSelectedPersonId(undefined)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: selectedPersonId === undefined
+                    ? '2px solid var(--primary)'
+                    : '2px solid var(--border-color)',
+                  background: selectedPersonId === undefined
+                    ? 'var(--primary-light)'
+                    : 'var(--bg-white)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <span style={{ fontWeight: selectedPersonId === undefined ? 600 : 400 }}>
+                  Combined
+                </span>
+              </button>
+              {persons.map(person => (
+                <button
+                  key={person.id}
+                  onClick={() => setSelectedPersonId(person.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: selectedPersonId === person.id
+                      ? `2px solid ${person.color}`
+                      : '2px solid var(--border-color)',
+                    background: selectedPersonId === person.id
+                      ? `${person.color}15`
+                      : 'var(--bg-white)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: person.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {person.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span style={{ fontWeight: selectedPersonId === person.id ? 600 : 400 }}>
+                    {person.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {selectedPersonId === undefined && (
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Showing combined data for all persons
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {!hasData ? (
         <div className="card" style={{ textAlign: 'center', padding: '60px' }}>
