@@ -23,6 +23,7 @@ router = APIRouter(prefix="/tax", tags=["tax"])
 async def calculate_tax(
     tax_year: int,
     losses_carried_forward: Decimal = Query(Decimal("0"), description="CGT losses from previous years"),
+    person_id: Optional[int] = Query(None, description="Person ID for family mode (None = combined view)"),
     db: Session = Depends(get_db)
 ) -> dict:
     """
@@ -33,6 +34,10 @@ async def calculate_tax(
     - Exit Tax (41%) on EU funds
     - DIRT (33%) on interest
     - Dividend income summary
+
+    If person_id is provided, calculates for that person only.
+    If person_id is None, calculates combined totals for all persons.
+    Note: Each person gets their own €1,270 CGT exemption.
     """
     # Initialize calculators
     cgt_calc = IrishCGTCalculator()
@@ -43,9 +48,12 @@ async def calculate_tax(
     all_exit_disposals = []
 
     # Get all transactions for the year and prior (for cost basis)
-    transactions = db.query(Transaction).join(Asset).filter(
+    trans_query = db.query(Transaction).join(Asset).filter(
         Transaction.transaction_date <= date(tax_year, 12, 31)
-    ).order_by(Transaction.transaction_date).all()
+    )
+    if person_id is not None:
+        trans_query = trans_query.filter(Transaction.person_id == person_id)
+    transactions = trans_query.order_by(Transaction.transaction_date).all()
 
     # Process transactions
     for trans in transactions:
@@ -103,10 +111,13 @@ async def calculate_tax(
                 cgt_calc.process_disposal(disposal)
 
     # Get income events
-    income_events = db.query(IncomeEvent).filter(
+    income_query = db.query(IncomeEvent).filter(
         IncomeEvent.payment_date >= date(tax_year, 1, 1),
         IncomeEvent.payment_date <= date(tax_year, 12, 31)
-    ).all()
+    )
+    if person_id is not None:
+        income_query = income_query.filter(IncomeEvent.person_id == person_id)
+    income_events = income_query.all()
 
     # Process interest for DIRT
     for event in income_events:
@@ -265,6 +276,7 @@ async def calculate_tax(
 @router.get("/deemed-disposals")
 async def get_deemed_disposals(
     years_ahead: int = Query(3, le=10, description="Years to look ahead"),
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
     db: Session = Depends(get_db)
 ) -> list[dict]:
     """Get upcoming deemed disposal events for Exit Tax planning."""
@@ -274,10 +286,13 @@ async def get_deemed_disposals(
     assets = db.query(Asset).filter(Asset.is_eu_fund == True).all()
 
     for asset in assets:
-        transactions = db.query(Transaction).filter(
+        trans_query = db.query(Transaction).filter(
             Transaction.asset_id == asset.id,
             Transaction.transaction_type == TransactionType.BUY
-        ).all()
+        )
+        if person_id is not None:
+            trans_query = trans_query.filter(Transaction.person_id == person_id)
+        transactions = trans_query.all()
 
         for trans in transactions:
             qty = abs(trans.quantity)
@@ -313,6 +328,7 @@ async def get_deemed_disposals(
 @router.get("/losses-to-carry-forward/{from_year}")
 async def get_losses_to_carry_forward(
     from_year: int,
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
     db: Session = Depends(get_db)
 ) -> dict:
     """
@@ -325,9 +341,12 @@ async def get_losses_to_carry_forward(
     cgt_calc = IrishCGTCalculator()
 
     # Get all non-Exit Tax transactions up to and including the specified year
-    transactions = db.query(Transaction).join(Asset).filter(
+    trans_query = db.query(Transaction).join(Asset).filter(
         Transaction.transaction_date <= date(from_year, 12, 31)
-    ).order_by(Transaction.transaction_date).all()
+    )
+    if person_id is not None:
+        trans_query = trans_query.filter(Transaction.person_id == person_id)
+    transactions = trans_query.order_by(Transaction.transaction_date).all()
 
     # Process transactions
     for trans in transactions:

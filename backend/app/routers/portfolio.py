@@ -40,7 +40,10 @@ class TransactionUpdate(BaseModel):
 
 
 @router.get("/holdings")
-async def get_holdings(db: Session = Depends(get_db)) -> list[dict]:
+async def get_holdings(
+    db: Session = Depends(get_db),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode")
+) -> list[dict]:
     """Get current holdings with cost basis."""
     # Aggregate transactions per asset
     holdings = []
@@ -49,9 +52,10 @@ async def get_holdings(db: Session = Depends(get_db)) -> list[dict]:
 
     for asset in assets:
         # Get all transactions for this asset
-        transactions = db.query(Transaction).filter(
-            Transaction.asset_id == asset.id
-        ).order_by(Transaction.transaction_date).all()
+        query = db.query(Transaction).filter(Transaction.asset_id == asset.id)
+        if person_id is not None:
+            query = query.filter(Transaction.person_id == person_id)
+        transactions = query.order_by(Transaction.transaction_date).all()
 
         total_quantity = Decimal("0")
         total_cost = Decimal("0")
@@ -89,11 +93,15 @@ async def get_transactions(
     start_date: Optional[date] = Query(None, description="Start date"),
     end_date: Optional[date] = Query(None, description="End date"),
     transaction_type: Optional[str] = Query(None, description="buy or sell"),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode"),
     limit: int = Query(100, le=1000),
     offset: int = Query(0)
 ) -> list[dict]:
     """Get transaction history with optional filters."""
     query = db.query(Transaction).join(Asset)
+
+    if person_id is not None:
+        query = query.filter(Transaction.person_id == person_id)
 
     if isin:
         query = query.filter(Asset.isin == isin)
@@ -190,11 +198,15 @@ async def get_income_events(
     income_type: Optional[str] = Query(None, description="Filter by type: interest, dividend, distribution"),
     start_date: Optional[date] = Query(None, description="Start date"),
     end_date: Optional[date] = Query(None, description="End date"),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode"),
     limit: int = Query(100, le=1000),
     offset: int = Query(0)
 ) -> list[dict]:
     """Get income events (dividends, interest, distributions)."""
     query = db.query(IncomeEvent)
+
+    if person_id is not None:
+        query = query.filter(IncomeEvent.person_id == person_id)
 
     if income_type:
         query = query.filter(IncomeEvent.income_type == income_type.lower())
