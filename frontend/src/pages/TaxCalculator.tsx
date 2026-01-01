@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { calculateTax, getDeemedDisposals, getLossesCarryForward, getPersons, type TaxResult, type Person } from '../services/api'
+import { calculateTax, getDeemedDisposals, getLossesCarryForward, getPersons, getAvailableYears, type TaxResult, type Person } from '../services/api'
 import { exportTaxReportPDF } from '../utils/pdfExport'
 
 export default function TaxCalculator() {
-  // Default to 2024 (most recent complete tax year)
-  const [taxYear, setTaxYear] = useState(2024)
+  // Dynamic year selection
+  const [availableYears, setAvailableYears] = useState<number[]>([])
+  const [taxYear, setTaxYear] = useState(new Date().getFullYear() - 1) // Default to last year
+  const [hasTransactionData, setHasTransactionData] = useState(false)
   const [lossesCarriedForward, setLossesCarriedForward] = useState(0)
   const [lossesAutoLoaded, setLossesAutoLoaded] = useState(false)
   const [result, setResult] = useState<TaxResult | null>(null)
@@ -34,17 +36,27 @@ export default function TaxCalculator() {
     }
   }
 
-  // Load persons on mount
+  // Load persons and available years on mount
   useEffect(() => {
-    async function loadPersons() {
+    async function loadInitialData() {
       try {
-        const data = await getPersons()
-        setPersons(data)
+        const [personsData, yearsData] = await Promise.all([
+          getPersons().catch(() => []),
+          getAvailableYears()
+        ])
+        setPersons(personsData)
+        setAvailableYears(yearsData.years)
+        setHasTransactionData(yearsData.has_data)
+        if (yearsData.default_year) {
+          setTaxYear(yearsData.default_year)
+        }
       } catch {
-        // Ignore - persons feature may not be set up yet
+        // Set fallback years if API fails
+        const currentYear = new Date().getFullYear()
+        setAvailableYears([currentYear, currentYear - 1, currentYear - 2])
       }
     }
-    loadPersons()
+    loadInitialData()
   }, [])
 
   const isFamilyMode = persons.length > 1
@@ -174,9 +186,9 @@ export default function TaxCalculator() {
                 </button>
               ))}
             </div>
-            {selectedPersonId === undefined && (
+            {selectedPersonId === undefined && persons.length > 1 && (
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                Note: Combined view sums all transactions but uses single exemption
+                Combined view: Each person gets their own €1,270 exemption
               </span>
             )}
           </div>
@@ -187,16 +199,46 @@ export default function TaxCalculator() {
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Tax Year</label>
-            <select
-              className="form-input"
-              value={taxYear}
-              onChange={e => setTaxYear(Number(e.target.value))}
-              style={{ width: '120px' }}
-            >
-              {[2024, 2023, 2022].map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '8px 12px', minWidth: 'auto' }}
+                onClick={() => {
+                  const idx = availableYears.indexOf(taxYear)
+                  if (idx < availableYears.length - 1) {
+                    setTaxYear(availableYears[idx + 1])
+                  }
+                }}
+                disabled={availableYears.indexOf(taxYear) >= availableYears.length - 1}
+                title="Previous year"
+              >
+                ←
+              </button>
+              <select
+                className="form-input"
+                value={taxYear}
+                onChange={e => setTaxYear(Number(e.target.value))}
+                style={{ width: '120px' }}
+              >
+                {availableYears.map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '8px 12px', minWidth: 'auto' }}
+                onClick={() => {
+                  const idx = availableYears.indexOf(taxYear)
+                  if (idx > 0) {
+                    setTaxYear(availableYears[idx - 1])
+                  }
+                }}
+                disabled={availableYears.indexOf(taxYear) <= 0}
+                title="Next year"
+              >
+                →
+              </button>
+            </div>
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">
@@ -354,7 +396,9 @@ export default function TaxCalculator() {
                     <td>Annual Exemption Used</td>
                     <td style={{ textAlign: 'right' }}>
                       -{formatCurrency(result.cgt.exemption_used)}
-                      <span style={{ color: 'var(--text-secondary)' }}> (max €1,270)</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {' '}(max {formatCurrency(result.cgt.annual_exemption)})
+                      </span>
                     </td>
                   </tr>
                   <tr style={{ background: 'var(--bg-white)' }}>

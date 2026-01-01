@@ -386,6 +386,19 @@ export async function getLossesCarryForward(fromYear: number, personId?: number)
   return response.json()
 }
 
+export interface AvailableYears {
+  years: number[]
+  default_year: number
+  has_data: boolean
+}
+
+export async function getAvailableYears(personId?: number): Promise<AvailableYears> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/available-years${params}`)
+  if (!response.ok) throw new Error('Failed to fetch available years')
+  return response.json()
+}
+
 // ===== Person Management (Family Tax Returns) =====
 
 export interface Person {

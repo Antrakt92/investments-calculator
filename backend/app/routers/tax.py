@@ -417,6 +417,55 @@ async def calculate_tax(
     }
 
 
+@router.get("/available-years")
+async def get_available_years(
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Get available tax years based on transaction data.
+    Returns years with transactions and the current year.
+    """
+    from sqlalchemy import extract, func
+
+    # Get distinct years from transactions
+    query = db.query(
+        extract('year', Transaction.transaction_date).label('year')
+    ).distinct()
+
+    if person_id is not None:
+        query = query.filter(Transaction.person_id == person_id)
+
+    years_with_data = sorted([int(row.year) for row in query.all()], reverse=True)
+
+    # Also get years from income events
+    income_query = db.query(
+        extract('year', IncomeEvent.payment_date).label('year')
+    ).distinct()
+
+    if person_id is not None:
+        income_query = income_query.filter(IncomeEvent.person_id == person_id)
+
+    income_years = [int(row.year) for row in income_query.all()]
+
+    # Combine and deduplicate
+    all_years = sorted(set(years_with_data + income_years), reverse=True)
+
+    # Always include current year and previous year
+    current_year = date.today().year
+    if current_year not in all_years:
+        all_years.insert(0, current_year)
+    if (current_year - 1) not in all_years:
+        all_years.append(current_year - 1)
+        all_years = sorted(all_years, reverse=True)
+
+    return {
+        "years": all_years,
+        "default_year": all_years[0] if all_years else current_year,
+        "has_data": len(years_with_data) > 0
+    }
+
+
 @router.get("/deemed-disposals")
 async def get_deemed_disposals(
     years_ahead: int = Query(3, le=10, description="Years to look ahead"),

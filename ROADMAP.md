@@ -110,18 +110,19 @@
 
 ---
 
-## Phase 3: Multi-Year Support
+## Phase 3: Multi-Year Support ✅ PARTIAL
 
-### 3.1 Year Selection
-- [ ] Tax year selector (2023, 2024, 2025...)
-- [ ] View historical data by year
-- [ ] Automatic year detection from transactions
+### 3.1 Year Selection ✅ DONE
+- [x] Tax year selector with dynamic years from transactions
+- [x] Year navigation arrows (← →)
+- [x] Automatic year detection from transactions
+- [x] View historical data by year
 
-### 3.2 Loss Carry Forward
-- [ ] Track CGT losses per year
-- [ ] Automatic carry forward to next year
-- [ ] Loss history view
-- [ ] Manual adjustment option
+### 3.2 Loss Carry Forward ✅ DONE
+- [x] Track CGT losses per year
+- [x] Automatic carry forward to next year (auto-loads from previous year)
+- [x] Manual adjustment option
+- [ ] Loss history view (future enhancement)
 
 ### 3.3 Year Comparison
 - [ ] Year-over-year tax comparison
@@ -236,7 +237,7 @@
 | Deemed Disposal Tracking | High | Medium | **P1** | ✅ Done |
 | Family/Joint Returns | High | High | **P1** | ✅ Done |
 | Data Validation | Medium | Medium | **P1** | ✅ Done |
-| Multi-Year Support | Medium | Medium | **P2** | Next |
+| Multi-Year Support | Medium | Medium | **P2** | ✅ Partial |
 | Tax Optimization Tools | Medium | High | **P3** | Pending |
 | Multiple Brokers | High | Very High | **Backlog** | Pending |
 | Portfolio Analytics | Low | High | **Backlog** | Pending |
@@ -252,6 +253,7 @@
 5. ~~**Now**: Dashboard person filtering (UX consistency)~~ ✅
 6. ~~**Now**: Data validation and error handling~~ ✅
 7. ~~**CRITICAL**: Fix Combined View CGT exemption bug (per-person exemptions)~~ ✅
-8. **HIGH**: Add income event duplicate detection
-9. **Then**: Multi-year support (Phase 3)
-10. **Next**: Tax optimization tools
+8. ~~**HIGH**: Add income event duplicate detection~~ ✅
+9. ~~**Then**: Multi-year support (Phase 3)~~ ✅ Partial
+10. **Next**: Tax optimization tools (Phase 4)
+11. **Future**: Year comparison, portfolio analytics
