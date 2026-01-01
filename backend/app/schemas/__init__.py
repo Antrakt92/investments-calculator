@@ -1,8 +1,36 @@
 from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 
+
+# ===== Person Schemas =====
+
+class PersonCreate(BaseModel):
+    name: str
+    is_primary: bool = False
+    pps_number: Optional[str] = None
+    color: str = "#3B82F6"
+
+
+class PersonUpdate(BaseModel):
+    name: Optional[str] = None
+    pps_number: Optional[str] = None
+    color: Optional[str] = None
+
+
+class PersonResponse(BaseModel):
+    id: int
+    name: str
+    is_primary: bool
+    pps_number: Optional[str] = None
+    color: str
+
+    class Config:
+        from_attributes = True
+
+
+# ===== Transaction Schemas =====
 
 class TransactionCreate(BaseModel):
     isin: str
@@ -12,6 +40,7 @@ class TransactionCreate(BaseModel):
     quantity: Decimal
     unit_price: Decimal
     fees: Decimal = Decimal("0")
+    person_id: Optional[int] = None  # For family tax returns
 
 
 class TransactionResponse(BaseModel):
@@ -26,6 +55,8 @@ class TransactionResponse(BaseModel):
     fees: Decimal
     net_amount: Decimal
     realized_gain_loss: Optional[Decimal] = None
+    person_id: Optional[int] = None
+    person_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -42,6 +73,8 @@ class HoldingResponse(BaseModel):
     market_value: Optional[Decimal] = None
     unrealized_gain_loss: Optional[Decimal] = None
     next_deemed_disposal: Optional[date] = None
+    person_id: Optional[int] = None
+    person_name: Optional[str] = None
 
 
 class TaxSummaryResponse(BaseModel):

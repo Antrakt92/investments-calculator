@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { calculateTax, getDeemedDisposals, getLossesCarryForward, type TaxResult } from '../services/api'
+import { calculateTax, getDeemedDisposals, getLossesCarryForward, getPersons, getAvailableYears, type TaxResult, type Person } from '../services/api'
 import { exportTaxReportPDF } from '../utils/pdfExport'
 
 export default function TaxCalculator() {
-  // Default to 2024 (most recent complete tax year)
-  const [taxYear, setTaxYear] = useState(2024)
+  // Dynamic year selection
+  const [availableYears, setAvailableYears] = useState<number[]>([])
+  const [taxYear, setTaxYear] = useState(new Date().getFullYear() - 1) // Default to last year
+  const [_hasTransactionData, setHasTransactionData] = useState(false)
   const [lossesCarriedForward, setLossesCarriedForward] = useState(0)
   const [lossesAutoLoaded, setLossesAutoLoaded] = useState(false)
   const [result, setResult] = useState<TaxResult | null>(null)
@@ -12,14 +14,18 @@ export default function TaxCalculator() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Family mode state
+  const [persons, setPersons] = useState<Person[]>([])
+  const [selectedPersonId, setSelectedPersonId] = useState<number | undefined>(undefined)
+
   async function calculate(losses?: number) {
     try {
       setLoading(true)
       setError(null)
       const lossesToUse = losses !== undefined ? losses : lossesCarriedForward
       const [taxResult, disposals] = await Promise.all([
-        calculateTax(taxYear, lossesToUse),
-        getDeemedDisposals(3),
+        calculateTax(taxYear, lossesToUse, selectedPersonId),
+        getDeemedDisposals(3, selectedPersonId),
       ])
       setResult(taxResult)
       setDeemedDisposals(disposals)
@@ -30,14 +36,40 @@ export default function TaxCalculator() {
     }
   }
 
-  // Fetch losses from previous year and calculate when year changes
+  // Load persons and available years on mount
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const [personsData, yearsData] = await Promise.all([
+          getPersons().catch(() => []),
+          getAvailableYears()
+        ])
+        setPersons(personsData)
+        setAvailableYears(yearsData.years)
+        setHasTransactionData(yearsData.has_data)
+        if (yearsData.default_year) {
+          setTaxYear(yearsData.default_year)
+        }
+      } catch {
+        // Set fallback years if API fails
+        const currentYear = new Date().getFullYear()
+        setAvailableYears([currentYear, currentYear - 1, currentYear - 2])
+      }
+    }
+    loadInitialData()
+  }, [])
+
+  const isFamilyMode = persons.length > 1
+  const selectedPerson = persons.find(p => p.id === selectedPersonId)
+
+  // Fetch losses from previous year and calculate when year or person changes
   useEffect(() => {
     async function fetchAndCalculate() {
       let losses = 0
       // First, fetch losses from previous year
       try {
         const previousYear = taxYear - 1
-        const lossData = await getLossesCarryForward(previousYear)
+        const lossData = await getLossesCarryForward(previousYear, selectedPersonId)
         if (lossData.losses_to_carry_forward > 0) {
           losses = lossData.losses_to_carry_forward
           setLossesCarriedForward(losses)
@@ -54,7 +86,7 @@ export default function TaxCalculator() {
       calculate(losses)
     }
     fetchAndCalculate()
-  }, [taxYear])
+  }, [taxYear, selectedPersonId])
 
   // Recalculate when user manually changes losses
   const [manualLossChange, setManualLossChange] = useState(false)
@@ -70,22 +102,143 @@ export default function TaxCalculator() {
 
   return (
     <div>
-      <h1 style={{ marginBottom: '24px' }}>Irish Tax Calculator - {taxYear}</h1>
+      <h1 style={{ marginBottom: '24px' }}>
+        Irish Tax Calculator - {taxYear}
+        {isFamilyMode && selectedPerson && (
+          <span style={{
+            fontSize: '18px',
+            fontWeight: 400,
+            color: selectedPerson.color,
+            marginLeft: '12px',
+          }}>
+            ({selectedPerson.name})
+          </span>
+        )}
+      </h1>
+
+      {/* Person Filter - only shown in family mode */}
+      {isFamilyMode && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 500 }}>Calculate for:</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setSelectedPersonId(undefined)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: selectedPersonId === undefined
+                    ? '2px solid var(--primary)'
+                    : '2px solid var(--border-color)',
+                  background: selectedPersonId === undefined
+                    ? 'var(--primary-light)'
+                    : 'var(--bg-white)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <span style={{ fontWeight: selectedPersonId === undefined ? 600 : 400 }}>
+                  Combined
+                </span>
+              </button>
+              {persons.map(person => (
+                <button
+                  key={person.id}
+                  onClick={() => setSelectedPersonId(person.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: selectedPersonId === person.id
+                      ? `2px solid ${person.color}`
+                      : '2px solid var(--border-color)',
+                    background: selectedPersonId === person.id
+                      ? `${person.color}15`
+                      : 'var(--bg-white)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: person.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {person.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span style={{ fontWeight: selectedPersonId === person.id ? 600 : 400 }}>
+                    {person.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {selectedPersonId === undefined && persons.length > 1 && (
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Combined view: Each person gets their own €1,270 exemption
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Tax Year</label>
-            <select
-              className="form-input"
-              value={taxYear}
-              onChange={e => setTaxYear(Number(e.target.value))}
-              style={{ width: '120px' }}
-            >
-              {[2024, 2023, 2022].map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '8px 12px', minWidth: 'auto' }}
+                onClick={() => {
+                  const idx = availableYears.indexOf(taxYear)
+                  if (idx < availableYears.length - 1) {
+                    setTaxYear(availableYears[idx + 1])
+                  }
+                }}
+                disabled={availableYears.indexOf(taxYear) >= availableYears.length - 1}
+                title="Previous year"
+              >
+                ←
+              </button>
+              <select
+                className="form-input"
+                value={taxYear}
+                onChange={e => setTaxYear(Number(e.target.value))}
+                style={{ width: '120px' }}
+              >
+                {availableYears.map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '8px 12px', minWidth: 'auto' }}
+                onClick={() => {
+                  const idx = availableYears.indexOf(taxYear)
+                  if (idx > 0) {
+                    setTaxYear(availableYears[idx - 1])
+                  }
+                }}
+                disabled={availableYears.indexOf(taxYear) <= 0}
+                title="Next year"
+              >
+                →
+              </button>
+            </div>
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">
@@ -243,7 +396,9 @@ export default function TaxCalculator() {
                     <td>Annual Exemption Used</td>
                     <td style={{ textAlign: 'right' }}>
                       -{formatCurrency(result.cgt.exemption_used)}
-                      <span style={{ color: 'var(--text-secondary)' }}> (max €1,270)</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {' '}(max {formatCurrency(result.cgt.annual_exemption)})
+                      </span>
                     </td>
                   </tr>
                   <tr style={{ background: 'var(--bg-white)' }}>

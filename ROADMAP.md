@@ -11,7 +11,7 @@
 
 ---
 
-## Current Status (v0.3)
+## Current Status (v0.4.2)
 
 ### ✅ Implemented
 - [x] PDF Upload (Trade Republic tax reports)
@@ -26,11 +26,11 @@
 - [x] Upload verification summary
 - [x] Income tracking (Interest + Dividends)
 - [x] Improved Dashboard with tax breakdown
-- [x] Manual transaction entry (Buy/Sell)
+- [x] Manual transaction entry (Buy/Sell) with person assignment
 - [x] Edit existing transactions
 - [x] Delete individual transactions
 - [x] Transaction form with validation
-- [x] CSV export for transactions
+- [x] CSV export for transactions (with person filter)
 - [x] Print-friendly tax summary
 - [x] CGT loss carry forward input
 - [x] PDF export for tax reports
@@ -39,6 +39,18 @@
 - [x] Robust PDF parsing (European decimals, concatenated numbers)
 - [x] Unit tests (45 tests: CGT, Exit Tax, parser)
 - [x] Deemed disposal tracking with time remaining and urgency alerts
+- [x] Family Mode - person management with Settings page
+- [x] Per-person filtering on Portfolio, Tax Calculator
+- [x] Person selector on PDF upload
+
+### 🔧 Recent Fixes (v0.4.2)
+- [x] **Combined View CGT Exemption**: Fixed critical bug - now correctly applies per-person €1,270 exemption in combined view (2 people = €2,540 total)
+- [x] **Duplicate Detection**: Both transactions and income events now include person_id check (allows same data for different family members)
+- [x] **Exit Tax Fee Handling**: Deemed disposals endpoint now includes fees in cost basis calculation
+- [x] Manual transactions now assigned to selected person in family mode
+- [x] CSV export respects person filter and includes Person column
+- [x] Dashboard person filtering (UX consistency with Portfolio/Tax)
+- [x] Data validation with warnings on PDF upload
 
 ---
 
@@ -51,11 +63,13 @@
 - [ ] Tests for API endpoints
 - [ ] CI/CD pipeline with test automation
 
-### 1.2 Data Validation
-- [ ] Validate parsed data against PDF totals
-- [ ] Show warnings for suspicious data (e.g., negative prices)
-- [ ] Highlight potential parsing errors
-- [ ] Allow manual corrections inline
+### 1.2 Data Validation ✅ DONE
+- [x] Track skipped transactions (missing ISIN, invalid format)
+- [x] Collect parsing warnings with details
+- [x] Show warnings on upload page with expandable details
+- [x] Report parsing errors and skipped items count
+- [ ] Validate parsed data against PDF totals (future)
+- [ ] Allow manual corrections inline (future)
 
 ### 1.3 Deemed Disposal (8-Year Rule) ✅ DONE
 - [x] Track purchase dates for all EU ETF holdings
@@ -67,47 +81,48 @@
 
 ---
 
-## Phase 2: Family/Joint Tax Returns 👨‍👩‍👧
+## Phase 2: Family/Joint Tax Returns 👨‍👩‍👧 ✅ DONE
 
-### 2.1 Multi-Person Support
-- [ ] Add "Person" entity (name, PPS number optional)
-- [ ] Default: Primary user + ability to add spouse
-- [ ] Each transaction linked to a person
-- [ ] Filter views by person
+### 2.1 Multi-Person Support ✅
+- [x] Add "Person" entity (name, PPS number optional)
+- [x] Default: Primary user + ability to add spouse
+- [x] Each transaction linked to a person
+- [x] Filter views by person
+- [x] Settings page for person management
 
-### 2.2 Separate Tracking
-- [ ] Portfolio view: "My Holdings" vs "Spouse Holdings" tabs
-- [ ] Transaction list: Person column with filter
-- [ ] Income: Split by person
-- [ ] Clear visual distinction (colors/icons)
+### 2.2 Separate Tracking ✅
+- [x] Portfolio view: Filter by person or "All" combined
+- [x] Transaction list: Filtered by person
+- [x] Income: Split by person
+- [x] Clear visual distinction (color-coded buttons)
 
-### 2.3 Individual Tax Calculations
-- [ ] CGT calculated separately per person
-- [ ] Each person gets their own €1,270 exemption
-- [ ] Exit Tax per person
-- [ ] DIRT per person (or combined if joint account)
-- [ ] Individual tax summaries
+### 2.3 Individual Tax Calculations ✅
+- [x] CGT calculated separately per person
+- [x] Each person gets their own €1,270 exemption
+- [x] Exit Tax per person
+- [x] DIRT per person
+- [x] Individual tax summaries via person filter
 
-### 2.4 Joint Filing View
-- [ ] Combined tax summary for Form 11
-- [ ] Show: Person 1 taxes + Person 2 taxes = Total
-- [ ] Joint Form 11 field reference
-- [ ] PDF export with both persons' data
+### 2.4 Joint Filing View ✅
+- [x] Combined tax summary (select "Combined" view)
+- [ ] PDF export with both persons' data (enhancement)
+- [ ] Joint Form 11 field reference with person breakdown (enhancement)
 
 ---
 
-## Phase 3: Multi-Year Support
+## Phase 3: Multi-Year Support ✅ PARTIAL
 
-### 3.1 Year Selection
-- [ ] Tax year selector (2023, 2024, 2025...)
-- [ ] View historical data by year
-- [ ] Automatic year detection from transactions
+### 3.1 Year Selection ✅ DONE
+- [x] Tax year selector with dynamic years from transactions
+- [x] Year navigation arrows (← →)
+- [x] Automatic year detection from transactions
+- [x] View historical data by year
 
-### 3.2 Loss Carry Forward
-- [ ] Track CGT losses per year
-- [ ] Automatic carry forward to next year
-- [ ] Loss history view
-- [ ] Manual adjustment option
+### 3.2 Loss Carry Forward ✅ DONE
+- [x] Track CGT losses per year
+- [x] Automatic carry forward to next year (auto-loads from previous year)
+- [x] Manual adjustment option
+- [ ] Loss history view (future enhancement)
 
 ### 3.3 Year Comparison
 - [ ] Year-over-year tax comparison
@@ -116,12 +131,13 @@
 
 ---
 
-## Phase 4: Tax Optimization
+## Phase 4: Tax Optimization ✅ PARTIAL
 
 ### 4.1 Tax Planning Tools
-- [ ] Show potential tax savings opportunities
-- [ ] Loss harvesting suggestions
-- [ ] "What-if" scenarios (sell X shares = Y tax)
+- [x] "What-if" scenarios (sell X shares = Y tax) - `/tax/what-if/{isin}` endpoint
+- [x] Loss harvesting suggestions - `/tax/loss-harvesting` endpoint
+- [x] What-if scenario UI component - `/planning` page
+- [x] Loss harvesting UI component - `/planning` page
 - [ ] Tax-efficient selling order recommendations
 
 ### 4.2 Alerts & Notifications
@@ -174,6 +190,14 @@
 
 ## Known Issues & Bugs
 
+### CRITICAL - Tax Calculation Bugs
+- [x] ~~**Combined View CGT Exemption**: Combined view uses single €1,270 exemption instead of per-person~~ FIXED
+- [x] ~~**Exit Tax Fee Handling**: Deemed disposals endpoint now includes fees in cost basis~~ FIXED
+
+### HIGH Priority
+- [x] ~~**Income Event Duplicate Detection**: Fixed - duplicate detection now includes person_id~~ FIXED
+- [x] ~~**CSV Export Person Lookup**: Already safe - uses .get() with "Unassigned" fallback~~ VERIFIED
+
 ### Parser
 - [x] ~~European decimal format (7,00 → 7.00)~~ FIXED
 - [x] ~~Concatenated numbers (1.0000342 → 1.0000 342)~~ FIXED
@@ -186,9 +210,11 @@
 - [ ] Validate Form 11 field mappings with accountant
 
 ### UI/UX
+- [x] ~~Dashboard person filtering (consistency with Portfolio/Tax pages)~~ FIXED
 - [ ] Dashboard layout on mobile
 - [ ] Better error messages for failed uploads
 - [ ] Loading skeleton states
+- [ ] Transaction reassignment UI before deleting person
 
 ---
 
@@ -210,10 +236,10 @@
 |---------|--------|--------|----------|--------|
 | Unit Tests | High | Medium | **P0** | ✅ Done |
 | Deemed Disposal Tracking | High | Medium | **P1** | ✅ Done |
-| Family/Joint Returns | High | High | **P1** | Next |
-| Data Validation | Medium | Medium | **P1** | Pending |
-| Multi-Year Support | Medium | Medium | **P2** | Pending |
-| Tax Optimization Tools | Medium | High | **P3** | Pending |
+| Family/Joint Returns | High | High | **P1** | ✅ Done |
+| Data Validation | Medium | Medium | **P1** | ✅ Done |
+| Multi-Year Support | Medium | Medium | **P2** | ✅ Partial |
+| Tax Optimization Tools | Medium | High | **P3** | ✅ Partial |
 | Multiple Brokers | High | Very High | **Backlog** | Pending |
 | Portfolio Analytics | Low | High | **Backlog** | Pending |
 
@@ -223,6 +249,13 @@
 
 1. ~~**Now**: Add unit tests for parser and calculators~~ ✅
 2. ~~**Then**: Deemed Disposal tracking~~ ✅
-3. **Now**: Implement Family/Joint returns
-4. **Next**: Data validation and error handling
-5. **Later**: Multi-year support
+3. ~~**Now**: Implement Family/Joint returns~~ ✅
+4. ~~**Now**: Fix person_id bugs in manual transactions/CSV~~ ✅
+5. ~~**Now**: Dashboard person filtering (UX consistency)~~ ✅
+6. ~~**Now**: Data validation and error handling~~ ✅
+7. ~~**CRITICAL**: Fix Combined View CGT exemption bug (per-person exemptions)~~ ✅
+8. ~~**HIGH**: Add income event duplicate detection~~ ✅
+9. ~~**Then**: Multi-year support (Phase 3)~~ ✅ Partial
+10. ~~**Next**: Tax optimization tools (Phase 4)~~ ✅ Core features complete
+11. **Next**: Alerts & notifications (payment deadlines, deemed disposal warnings)
+12. **Future**: Year comparison, portfolio analytics

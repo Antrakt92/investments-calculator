@@ -1,5 +1,13 @@
 const API_BASE = '/api'
 
+export interface ValidationWarning {
+  type: string
+  severity: 'info' | 'warning' | 'error'
+  message: string
+  line: string | null
+  details: Record<string, unknown> | null
+}
+
 export interface UploadResponse {
   success: boolean
   message: string
@@ -16,6 +24,14 @@ export interface UploadResponse {
     sells: { count: number; total: number }
     interest: { count: number; total: number }
     dividends: { count: number; total: number }
+  }
+  validation?: {
+    skipped_no_isin: number
+    skipped_invalid_format: number
+    parsing_errors: number
+    warning_count: number
+    warning_summary: Record<string, number>
+    warnings: ValidationWarning[]
   }
 }
 
@@ -137,11 +153,16 @@ export interface TaxResult {
   }
 }
 
-export async function uploadPDF(file: File): Promise<UploadResponse> {
+export async function uploadPDF(file: File, personId?: number): Promise<UploadResponse> {
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(`${API_BASE}/upload/trade-republic-pdf`, {
+  // Add person_id as query parameter if provided
+  const url = personId
+    ? `${API_BASE}/upload/trade-republic-pdf?person_id=${personId}`
+    : `${API_BASE}/upload/trade-republic-pdf`
+
+  const response = await fetch(url, {
     method: 'POST',
     body: formData,
   })
@@ -154,8 +175,13 @@ export async function uploadPDF(file: File): Promise<UploadResponse> {
   return response.json()
 }
 
-export async function getHoldings(): Promise<Holding[]> {
-  const response = await fetch(`${API_BASE}/portfolio/holdings`)
+export async function getHoldings(personId?: number): Promise<Holding[]> {
+  const params = new URLSearchParams()
+  if (personId !== undefined) params.set('person_id', personId.toString())
+  const url = params.toString()
+    ? `${API_BASE}/portfolio/holdings?${params}`
+    : `${API_BASE}/portfolio/holdings`
+  const response = await fetch(url)
   if (!response.ok) throw new Error('Failed to fetch holdings')
   return response.json()
 }
@@ -165,6 +191,7 @@ export async function getTransactions(params?: {
   start_date?: string
   end_date?: string
   transaction_type?: string
+  person_id?: number
   limit?: number
 }): Promise<Transaction[]> {
   const searchParams = new URLSearchParams()
@@ -172,6 +199,7 @@ export async function getTransactions(params?: {
   if (params?.start_date) searchParams.set('start_date', params.start_date)
   if (params?.end_date) searchParams.set('end_date', params.end_date)
   if (params?.transaction_type) searchParams.set('transaction_type', params.transaction_type)
+  if (params?.person_id !== undefined) searchParams.set('person_id', params.person_id.toString())
   if (params?.limit) searchParams.set('limit', params.limit.toString())
 
   const response = await fetch(`${API_BASE}/portfolio/transactions?${searchParams}`)
@@ -191,16 +219,20 @@ export async function getPortfolioSummary(): Promise<{
 
 export async function calculateTax(
   taxYear: number,
-  lossesCarriedForward: number = 0
+  lossesCarriedForward: number = 0,
+  personId?: number
 ): Promise<TaxResult> {
+  const params = new URLSearchParams()
+  params.set('losses_carried_forward', lossesCarriedForward.toString())
+  if (personId !== undefined) params.set('person_id', personId.toString())
   const response = await fetch(
-    `${API_BASE}/tax/calculate/${taxYear}?losses_carried_forward=${lossesCarriedForward}`
+    `${API_BASE}/tax/calculate/${taxYear}?${params}`
   )
   if (!response.ok) throw new Error('Failed to calculate tax')
   return response.json()
 }
 
-export async function getDeemedDisposals(yearsAhead: number = 3): Promise<Array<{
+export async function getDeemedDisposals(yearsAhead: number = 3, personId?: number): Promise<Array<{
   isin: string
   name: string
   acquisition_date: string
@@ -210,7 +242,10 @@ export async function getDeemedDisposals(yearsAhead: number = 3): Promise<Array<
   estimated_gain: number | null
   estimated_tax: number | null
 }>> {
-  const response = await fetch(`${API_BASE}/tax/deemed-disposals?years_ahead=${yearsAhead}`)
+  const params = new URLSearchParams()
+  params.set('years_ahead', yearsAhead.toString())
+  if (personId !== undefined) params.set('person_id', personId.toString())
+  const response = await fetch(`${API_BASE}/tax/deemed-disposals?${params}`)
   if (!response.ok) throw new Error('Failed to fetch deemed disposals')
   return response.json()
 }
@@ -232,12 +267,14 @@ export async function getIncomeEvents(params?: {
   income_type?: string
   start_date?: string
   end_date?: string
+  person_id?: number
   limit?: number
 }): Promise<IncomeEvent[]> {
   const searchParams = new URLSearchParams()
   if (params?.income_type) searchParams.set('income_type', params.income_type)
   if (params?.start_date) searchParams.set('start_date', params.start_date)
   if (params?.end_date) searchParams.set('end_date', params.end_date)
+  if (params?.person_id !== undefined) searchParams.set('person_id', params.person_id.toString())
   if (params?.limit) searchParams.set('limit', params.limit.toString())
 
   const response = await fetch(`${API_BASE}/portfolio/income?${searchParams}`)
@@ -256,6 +293,7 @@ export interface TransactionCreate {
   unit_price: number
   fees?: number
   notes?: string
+  person_id?: number  // For family mode
 }
 
 export interface AssetInfo {
@@ -322,8 +360,13 @@ export async function updateTransaction(
   return response.json()
 }
 
-export async function exportTransactionsCSV(): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/portfolio/transactions/export/csv`)
+export async function exportTransactionsCSV(personId?: number): Promise<Blob> {
+  const params = new URLSearchParams()
+  if (personId !== undefined) params.set('person_id', personId.toString())
+  const url = params.toString()
+    ? `${API_BASE}/portfolio/transactions/export/csv?${params}`
+    : `${API_BASE}/portfolio/transactions/export/csv`
+  const response = await fetch(url)
   if (!response.ok) throw new Error('Failed to export transactions')
   return response.blob()
 }
@@ -336,8 +379,181 @@ export interface LossesCarryForward {
   net_gain_loss: number
 }
 
-export async function getLossesCarryForward(fromYear: number): Promise<LossesCarryForward> {
-  const response = await fetch(`${API_BASE}/tax/losses-to-carry-forward/${fromYear}`)
+export async function getLossesCarryForward(fromYear: number, personId?: number): Promise<LossesCarryForward> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/losses-to-carry-forward/${fromYear}${params}`)
   if (!response.ok) throw new Error('Failed to fetch losses')
+  return response.json()
+}
+
+export interface AvailableYears {
+  years: number[]
+  default_year: number
+  has_data: boolean
+}
+
+export async function getAvailableYears(personId?: number): Promise<AvailableYears> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/available-years${params}`)
+  if (!response.ok) throw new Error('Failed to fetch available years')
+  return response.json()
+}
+
+// ===== Tax Planning Tools =====
+
+export interface WhatIfResult {
+  isin: string
+  asset_name: string
+  tax_type: string
+  scenario: {
+    quantity_to_sell: number
+    sale_price_per_unit: number
+    total_proceeds: number
+  }
+  cost_basis: {
+    total: number
+    average_per_unit: number
+    lots_used: Array<{
+      acquisition_date: string
+      quantity: number
+      unit_cost: number
+      cost_basis: number
+    }>
+  }
+  result: {
+    gain_loss: number
+    is_gain: boolean
+    tax_rate: string
+    estimated_tax: number
+    exemption_info: string
+  }
+  available_quantity: number
+  note: string
+}
+
+export async function calculateWhatIf(
+  isin: string,
+  quantity: number,
+  salePrice: number,
+  personId?: number
+): Promise<WhatIfResult> {
+  const params = new URLSearchParams()
+  params.set('quantity', quantity.toString())
+  params.set('sale_price', salePrice.toString())
+  if (personId !== undefined) params.set('person_id', personId.toString())
+
+  const response = await fetch(`${API_BASE}/tax/what-if/${isin}?${params}`)
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to calculate what-if scenario')
+  }
+  return response.json()
+}
+
+export interface LossHarvestingOpportunity {
+  isin: string
+  name: string
+  tax_type: string
+  quantity: number
+  average_cost: number
+  total_cost_basis: number
+  current_price: number | null
+  unrealized_gain_loss: number | null
+  note: string
+}
+
+export async function getLossHarvestingOpportunities(personId?: number): Promise<LossHarvestingOpportunity[]> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/loss-harvesting${params}`)
+  if (!response.ok) throw new Error('Failed to fetch loss harvesting opportunities')
+  return response.json()
+}
+
+// ===== Person Management (Family Tax Returns) =====
+
+export interface Person {
+  id: number
+  name: string
+  is_primary: boolean
+  pps_number: string | null
+  color: string
+}
+
+export interface PersonCreate {
+  name: string
+  is_primary?: boolean
+  pps_number?: string
+  color?: string
+}
+
+export interface PersonUpdate {
+  name?: string
+  pps_number?: string
+  color?: string
+}
+
+export async function getPersons(): Promise<Person[]> {
+  const response = await fetch(`${API_BASE}/persons/`)
+  if (!response.ok) throw new Error('Failed to fetch persons')
+  return response.json()
+}
+
+export async function getPerson(id: number): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/${id}`)
+  if (!response.ok) throw new Error('Failed to fetch person')
+  return response.json()
+}
+
+export async function createPerson(data: PersonCreate): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to create person')
+  }
+  return response.json()
+}
+
+export async function updatePerson(id: number, data: PersonUpdate): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to update person')
+  }
+  return response.json()
+}
+
+export async function deletePerson(id: number): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/persons/${id}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to delete person')
+  }
+  return response.json()
+}
+
+export async function setPrimaryPerson(id: number): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/${id}/set-primary`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to set primary person')
+  }
+  return response.json()
+}
+
+export async function getOrCreatePrimaryPerson(): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/primary/default`)
+  if (!response.ok) throw new Error('Failed to get primary person')
   return response.json()
 }

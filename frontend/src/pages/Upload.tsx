@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { uploadPDF, clearAllData, type UploadResponse } from '../services/api'
+import { useState, useRef, useEffect } from 'react'
+import { uploadPDF, clearAllData, getPersons, type UploadResponse, type Person } from '../services/api'
 
 export default function Upload() {
   const [uploading, setUploading] = useState(false)
@@ -9,6 +9,33 @@ export default function Upload() {
   const [clearMessage, setClearMessage] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Family mode state
+  const [persons, setPersons] = useState<Person[]>([])
+  const [selectedPersonId, setSelectedPersonId] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    loadPersons()
+  }, [])
+
+  async function loadPersons() {
+    try {
+      const data = await getPersons()
+      setPersons(data)
+      // Default to primary person if exists
+      const primary = data.find(p => p.is_primary)
+      if (primary) {
+        setSelectedPersonId(primary.id)
+      } else if (data.length > 0) {
+        setSelectedPersonId(data[0].id)
+      }
+    } catch {
+      // Ignore - persons feature may not be set up yet
+    }
+  }
+
+  const isFamilyMode = persons.length > 1
+  const selectedPerson = persons.find(p => p.id === selectedPersonId)
 
   async function handleFile(file: File) {
     if (!file.name.endsWith('.pdf')) {
@@ -21,7 +48,8 @@ export default function Upload() {
       setError(null)
       setResult(null)
       setClearMessage(null)
-      const response = await uploadPDF(file)
+      // Pass person_id if family mode is enabled
+      const response = await uploadPDF(file, isFamilyMode ? selectedPersonId : undefined)
       setResult(response)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -75,6 +103,58 @@ export default function Upload() {
     <div>
       <h1 style={{ marginBottom: '24px' }}>Upload Trade Republic Tax Report</h1>
 
+      {/* Person Selector - only shown in family mode */}
+      {isFamilyMode && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 500 }}>Importing for:</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {persons.map(person => (
+                <button
+                  key={person.id}
+                  onClick={() => setSelectedPersonId(person.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: selectedPersonId === person.id
+                      ? `2px solid ${person.color}`
+                      : '2px solid var(--border-color)',
+                    background: selectedPersonId === person.id
+                      ? `${person.color}15`
+                      : 'var(--bg-white)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: person.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {person.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span style={{ fontWeight: selectedPersonId === person.id ? 600 : 400 }}>
+                    {person.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div
           className={`upload-zone ${dragActive ? 'active' : ''}`}
@@ -124,6 +204,17 @@ export default function Upload() {
           <div style={{ marginTop: '24px' }}>
             <div className="alert alert-success">
               <strong>Upload successful!</strong>
+              {isFamilyMode && selectedPerson && (
+                <p style={{ marginTop: '8px' }}>
+                  Imported for: <span style={{
+                    fontWeight: 600,
+                    color: selectedPerson.color,
+                    background: `${selectedPerson.color}15`,
+                    padding: '2px 8px',
+                    borderRadius: '4px'
+                  }}>{selectedPerson.name}</span>
+                </p>
+              )}
               <p style={{ marginTop: '8px' }}>
                 Tax Year: <strong>{result.tax_year}</strong> ({result.period.start} to {result.period.end})
               </p>
@@ -166,6 +257,87 @@ export default function Upload() {
                 </div>
               </div>
             </div>
+
+            {/* Validation Warnings */}
+            {result.validation && (result.validation.warning_count > 0 || result.validation.skipped_no_isin > 0 || result.validation.parsing_errors > 0) && (
+              <div style={{ marginTop: '24px' }}>
+                <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: 'var(--warning)' }}>⚠️</span>
+                  Parsing Notes
+                </h3>
+                <div className="card" style={{ borderLeft: '4px solid var(--warning)', background: 'var(--bg-secondary)' }}>
+                  {/* Summary stats */}
+                  <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                    {result.validation.skipped_no_isin > 0 && (
+                      <div>
+                        <span style={{ color: 'var(--warning)', fontWeight: 500 }}>
+                          {result.validation.skipped_no_isin}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                          skipped (no ISIN)
+                        </span>
+                      </div>
+                    )}
+                    {result.validation.skipped_invalid_format > 0 && (
+                      <div>
+                        <span style={{ color: 'var(--warning)', fontWeight: 500 }}>
+                          {result.validation.skipped_invalid_format}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                          skipped (invalid format)
+                        </span>
+                      </div>
+                    )}
+                    {result.validation.parsing_errors > 0 && (
+                      <div>
+                        <span style={{ color: 'var(--danger)', fontWeight: 500 }}>
+                          {result.validation.parsing_errors}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                          parsing errors
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Warning details */}
+                  {result.validation.warnings.length > 0 && (
+                    <div>
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 500, marginBottom: '12px' }}>
+                          Show {result.validation.warnings.length} warning details
+                        </summary>
+                        <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '13px' }}>
+                          {result.validation.warnings.map((w, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '8px',
+                                background: 'var(--bg-primary)',
+                                borderRadius: '4px',
+                                marginBottom: '4px',
+                                borderLeft: `3px solid ${w.severity === 'error' ? 'var(--danger)' : 'var(--warning)'}`
+                              }}
+                            >
+                              <div style={{ fontWeight: 500 }}>{w.message}</div>
+                              {w.line && (
+                                <div style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '11px', marginTop: '4px' }}>
+                                  {w.line}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  )}
+
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '12px' }}>
+                    These items could not be parsed. This is usually normal for Section VI data (gains/losses summary).
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
               <a href="/portfolio" className="btn btn-primary">

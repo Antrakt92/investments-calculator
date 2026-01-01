@@ -13,9 +13,13 @@ from ..schemas import UploadResponse
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 
+from typing import Optional
+from fastapi import Query
+
 @router.post("/trade-republic-pdf")
 async def upload_trade_republic_pdf(
     file: UploadFile = File(...),
+    person_id: Optional[int] = Query(None, description="Person ID for family tax returns"),
     db: Session = Depends(get_db)
 ):
     """
@@ -71,12 +75,13 @@ async def upload_trade_republic_pdf(
                 db.add(asset)
                 db.flush()
 
-            # Check for duplicate transaction (same asset, date, type, quantity, amount)
+            # Check for duplicate transaction (include person_id to allow same transaction for different persons)
             trans_type = TransactionType.BUY if trans.transaction_type == "buy" else TransactionType.SELL
             quantity = trans.quantity if trans.transaction_type == "buy" else -trans.quantity
 
             existing = db.query(Transaction).filter(
                 Transaction.asset_id == asset.id,
+                Transaction.person_id == person_id,
                 Transaction.transaction_date == trans.transaction_date,
                 Transaction.transaction_type == trans_type,
                 Transaction.gross_amount == trans.market_value
@@ -88,6 +93,7 @@ async def upload_trade_republic_pdf(
 
             db_trans = Transaction(
                 asset_id=asset.id,
+                person_id=person_id,  # For family tax returns
                 transaction_type=trans_type,
                 transaction_date=trans.transaction_date,
                 settlement_date=trans.settlement_date,
@@ -120,9 +126,10 @@ async def upload_trade_republic_pdf(
                 if asset:
                     asset_id = asset.id
 
-            # Check for duplicate income event
+            # Check for duplicate income event (include person_id to allow same event for different persons)
             existing_income = db.query(IncomeEvent).filter(
                 IncomeEvent.asset_id == asset_id,
+                IncomeEvent.person_id == person_id,
                 IncomeEvent.payment_date == income.payment_date,
                 IncomeEvent.income_type == income.income_type.lower(),
                 IncomeEvent.gross_amount == income.gross_amount
@@ -134,6 +141,7 @@ async def upload_trade_republic_pdf(
 
             income_event = IncomeEvent(
                 asset_id=asset_id,
+                person_id=person_id,  # For family tax returns
                 income_type=income.income_type.lower(),
                 payment_date=income.payment_date,
                 gross_amount=income.gross_amount,
@@ -151,6 +159,27 @@ async def upload_trade_republic_pdf(
                 total_dividends += income.gross_amount
 
         db.commit()
+
+        # Compile validation warnings (exclude info-level Section VI warnings which are normal)
+        validation_warnings = [
+            {
+                "type": w.warning_type,
+                "severity": w.severity,
+                "message": w.message,
+                "line": w.line_content,
+                "details": w.details
+            }
+            for w in parsed.warnings
+            if w.severity != "info"  # Don't clutter with info messages
+        ]
+
+        # Group warnings by type for summary
+        warning_summary = {}
+        for w in validation_warnings:
+            wtype = w["type"]
+            if wtype not in warning_summary:
+                warning_summary[wtype] = 0
+            warning_summary[wtype] += 1
 
         return {
             "success": True,
@@ -180,6 +209,14 @@ async def upload_trade_republic_pdf(
                     "count": sum(1 for i in parsed.income_events if i.income_type.lower() != "interest"),
                     "total": float(total_dividends)
                 }
+            },
+            "validation": {
+                "skipped_no_isin": parsed.skipped_no_isin,
+                "skipped_invalid_format": parsed.skipped_invalid_format,
+                "parsing_errors": parsed.parsing_errors,
+                "warning_count": len(validation_warnings),
+                "warning_summary": warning_summary,
+                "warnings": validation_warnings[:20]  # Limit to first 20 warnings
             }
         }
 

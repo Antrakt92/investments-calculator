@@ -28,6 +28,7 @@ class TransactionCreate(BaseModel):
     unit_price: float
     fees: float = 0
     notes: Optional[str] = None
+    person_id: Optional[int] = None  # For family mode
 
 
 class TransactionUpdate(BaseModel):
@@ -40,7 +41,10 @@ class TransactionUpdate(BaseModel):
 
 
 @router.get("/holdings")
-async def get_holdings(db: Session = Depends(get_db)) -> list[dict]:
+async def get_holdings(
+    db: Session = Depends(get_db),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode")
+) -> list[dict]:
     """Get current holdings with cost basis."""
     # Aggregate transactions per asset
     holdings = []
@@ -49,9 +53,10 @@ async def get_holdings(db: Session = Depends(get_db)) -> list[dict]:
 
     for asset in assets:
         # Get all transactions for this asset
-        transactions = db.query(Transaction).filter(
-            Transaction.asset_id == asset.id
-        ).order_by(Transaction.transaction_date).all()
+        query = db.query(Transaction).filter(Transaction.asset_id == asset.id)
+        if person_id is not None:
+            query = query.filter(Transaction.person_id == person_id)
+        transactions = query.order_by(Transaction.transaction_date).all()
 
         total_quantity = Decimal("0")
         total_cost = Decimal("0")
@@ -89,11 +94,15 @@ async def get_transactions(
     start_date: Optional[date] = Query(None, description="Start date"),
     end_date: Optional[date] = Query(None, description="End date"),
     transaction_type: Optional[str] = Query(None, description="buy or sell"),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode"),
     limit: int = Query(100, le=1000),
     offset: int = Query(0)
 ) -> list[dict]:
     """Get transaction history with optional filters."""
     query = db.query(Transaction).join(Asset)
+
+    if person_id is not None:
+        query = query.filter(Transaction.person_id == person_id)
 
     if isin:
         query = query.filter(Asset.isin == isin)
@@ -190,11 +199,15 @@ async def get_income_events(
     income_type: Optional[str] = Query(None, description="Filter by type: interest, dividend, distribution"),
     start_date: Optional[date] = Query(None, description="Start date"),
     end_date: Optional[date] = Query(None, description="End date"),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode"),
     limit: int = Query(100, le=1000),
     offset: int = Query(0)
 ) -> list[dict]:
     """Get income events (dividends, interest, distributions)."""
     query = db.query(IncomeEvent)
+
+    if person_id is not None:
+        query = query.filter(IncomeEvent.person_id == person_id)
 
     if income_type:
         query = query.filter(IncomeEvent.income_type == income_type.lower())
@@ -275,6 +288,7 @@ async def create_transaction(
 
     transaction = Transaction(
         asset_id=asset.id,
+        person_id=data.person_id,  # For family mode
         transaction_type=trans_type,
         transaction_date=data.transaction_date,
         settlement_date=data.transaction_date,
@@ -314,11 +328,16 @@ async def create_transaction(
 async def export_transactions_csv(
     db: Session = Depends(get_db),
     start_date: Optional[date] = Query(None),
-    end_date: Optional[date] = Query(None)
+    end_date: Optional[date] = Query(None),
+    person_id: Optional[int] = Query(None, description="Filter by person ID for family mode")
 ) -> StreamingResponse:
-    """Export all transactions as CSV."""
+    """Export transactions as CSV, optionally filtered by person."""
+    from ..models import Person
+
     query = db.query(Transaction).join(Asset)
 
+    if person_id is not None:
+        query = query.filter(Transaction.person_id == person_id)
     if start_date:
         query = query.filter(Transaction.transaction_date >= start_date)
     if end_date:
@@ -326,12 +345,22 @@ async def export_transactions_csv(
 
     transactions = query.order_by(Transaction.transaction_date.desc()).all()
 
+    # Check if we need to show person column (family mode)
+    persons_count = db.query(Person).count()
+    show_person_column = persons_count > 1
+
+    # Get person name lookup if needed
+    person_names = {}
+    if show_person_column:
+        persons = db.query(Person).all()
+        person_names = {p.id: p.name for p in persons}
+
     # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
 
     # Header
-    writer.writerow([
+    header = [
         "Date",
         "ISIN",
         "Asset Name",
@@ -342,11 +371,14 @@ async def export_transactions_csv(
         "Fees (EUR)",
         "Net Amount (EUR)",
         "Notes"
-    ])
+    ]
+    if show_person_column:
+        header.insert(0, "Person")
+    writer.writerow(header)
 
     # Data rows
     for t in transactions:
-        writer.writerow([
+        row = [
             t.transaction_date.isoformat(),
             t.asset.isin,
             t.asset.name,
@@ -357,15 +389,24 @@ async def export_transactions_csv(
             float(t.fees),
             float(t.net_amount),
             t.notes or ""
-        ])
+        ]
+        if show_person_column:
+            person_name = person_names.get(t.person_id, "Unassigned") if t.person_id else "Unassigned"
+            row.insert(0, person_name)
+        writer.writerow(row)
 
     output.seek(0)
+
+    # Include person name in filename if filtering
+    filename_suffix = ""
+    if person_id is not None and person_id in person_names:
+        filename_suffix = f"_{person_names[person_id].lower().replace(' ', '_')}"
 
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=transactions_{date.today().isoformat()}.csv"
+            "Content-Disposition": f"attachment; filename=transactions{filename_suffix}_{date.today().isoformat()}.csv"
         }
     )
 

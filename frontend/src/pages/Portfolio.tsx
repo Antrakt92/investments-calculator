@@ -4,6 +4,7 @@ import {
   getTransactions,
   getIncomeEvents,
   getAssets,
+  getPersons,
   createTransaction,
   deleteTransaction,
   updateTransaction,
@@ -13,7 +14,8 @@ import {
   type IncomeEvent,
   type AssetInfo,
   type TransactionCreate,
-  type TransactionUpdate
+  type TransactionUpdate,
+  type Person
 } from '../services/api'
 
 export default function Portfolio() {
@@ -26,6 +28,10 @@ export default function Portfolio() {
   const [error, setError] = useState<string | null>(null)
   const [transFilter, setTransFilter] = useState<'all' | 'buy' | 'sell'>('all')
   const [incomeFilter, setIncomeFilter] = useState<'all' | 'interest' | 'dividend'>('all')
+
+  // Family mode state
+  const [persons, setPersons] = useState<Person[]>([])
+  const [selectedPersonId, setSelectedPersonId] = useState<number | undefined>(undefined)
 
   // Transaction form state
   const [showForm, setShowForm] = useState(false)
@@ -45,16 +51,33 @@ export default function Portfolio() {
   })
 
   useEffect(() => {
-    loadData()
+    loadPersons()
   }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [selectedPersonId])
+
+  async function loadPersons() {
+    try {
+      const data = await getPersons()
+      setPersons(data)
+      // Default to 'all' (undefined) for combined view
+    } catch {
+      // Ignore - persons feature may not be set up yet
+    }
+  }
+
+  const isFamilyMode = persons.length > 1
+  const selectedPerson = persons.find(p => p.id === selectedPersonId)
 
   async function loadData() {
     try {
       setLoading(true)
       const [holdingsData, transactionsData, incomeData, assetsData] = await Promise.all([
-        getHoldings(),
-        getTransactions({ limit: 100 }),
-        getIncomeEvents({ limit: 100 }),
+        getHoldings(selectedPersonId),
+        getTransactions({ limit: 100, person_id: selectedPersonId }),
+        getIncomeEvents({ limit: 100, person_id: selectedPersonId }),
         getAssets(),
       ])
       setHoldings(holdingsData)
@@ -108,8 +131,12 @@ export default function Portfolio() {
         const result = await updateTransaction(editingTransaction.id, updateData)
         setFormSuccess(result.message)
       } else {
-        // Create new transaction
-        const result = await createTransaction(formData)
+        // Create new transaction (include person_id if in family mode)
+        const transactionData: TransactionCreate = {
+          ...formData,
+          person_id: selectedPersonId,
+        }
+        const result = await createTransaction(transactionData)
         setFormSuccess(result.message)
       }
 
@@ -162,11 +189,14 @@ export default function Portfolio() {
 
   async function handleExportCSV() {
     try {
-      const blob = await exportTransactionsCSV()
+      // Pass selectedPersonId to filter exports in family mode
+      const blob = await exportTransactionsCSV(selectedPersonId)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`
+      // Include person name in filename if filtering
+      const personSuffix = selectedPerson ? `_${selectedPerson.name.toLowerCase().replace(/\s+/g, '_')}` : ''
+      a.download = `transactions${personSuffix}_${new Date().toISOString().split('T')[0]}.csv`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
@@ -229,6 +259,80 @@ export default function Portfolio() {
   return (
     <div>
       <h1 style={{ marginBottom: '24px' }}>Portfolio</h1>
+
+      {/* Person Filter - only shown in family mode */}
+      {isFamilyMode && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 500 }}>Viewing:</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setSelectedPersonId(undefined)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: selectedPersonId === undefined
+                    ? '2px solid var(--primary)'
+                    : '2px solid var(--border-color)',
+                  background: selectedPersonId === undefined
+                    ? 'var(--primary-light)'
+                    : 'var(--bg-white)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <span style={{ fontWeight: selectedPersonId === undefined ? 600 : 400 }}>
+                  All
+                </span>
+              </button>
+              {persons.map(person => (
+                <button
+                  key={person.id}
+                  onClick={() => setSelectedPersonId(person.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: selectedPersonId === person.id
+                      ? `2px solid ${person.color}`
+                      : '2px solid var(--border-color)',
+                    background: selectedPersonId === person.id
+                      ? `${person.color}15`
+                      : 'var(--bg-white)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: person.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {person.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span style={{ fontWeight: selectedPersonId === person.id ? 600 : 400 }}>
+                    {person.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: '16px' }}>
         <button
