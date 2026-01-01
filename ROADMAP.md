@@ -140,11 +140,13 @@
 - [x] Loss harvesting UI component - `/planning` page
 - [ ] Tax-efficient selling order recommendations
 
-### 4.2 Alerts & Notifications
+### 4.2 Alerts & Notifications ✅ DONE
 - [x] Payment deadline reminders with urgency (days countdown, color-coded)
 - [x] Deemed disposal warnings (30/60/90 days with escalating urgency)
 - [x] Family Mode setup hint on Dashboard
-- [ ] 4-week rule warnings before re-buying
+- [x] 4-week bed & breakfast rule warnings on Dashboard
+  - Backend: `/tax/bed-breakfast-check/{isin}` and `/tax/recent-sales` endpoints
+  - Frontend: Dashboard shows recent sales with countdown to safe repurchase date
 
 ---
 
@@ -259,5 +261,6 @@
 9. ~~**Then**: Multi-year support (Phase 3)~~ ✅ Partial
 10. ~~**Next**: Tax optimization tools (Phase 4)~~ ✅ Core features complete
 11. ~~**Next**: Alerts & notifications (payment deadlines, deemed disposal warnings)~~ ✅ Done
-12. **Next**: 4-week rule warning, JSON backup/restore
-13. **Future**: Year comparison, portfolio analytics
+12. ~~**Next**: 4-week rule warning~~ ✅ Done
+13. **Next**: JSON backup/restore, tax-efficient selling recommendations
+14. **Future**: Year comparison, portfolio analytics

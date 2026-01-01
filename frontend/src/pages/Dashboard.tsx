@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, getDeemedDisposals, getPersons, type Holding, type TaxResult, type IncomeEvent, type Person } from '../services/api'
+import { getPortfolioSummary, getHoldings, getIncomeEvents, calculateTax, getDeemedDisposals, getPersons, getRecentSales, type Holding, type TaxResult, type IncomeEvent, type Person, type RecentSale } from '../services/api'
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<{
@@ -8,6 +8,7 @@ export default function Dashboard() {
     total_transactions: number
   } | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
+  const [recentSales, setRecentSales] = useState<RecentSale[]>([])
   const [incomeEvents, setIncomeEvents] = useState<IncomeEvent[]>([])
   const [taxResult, setTaxResult] = useState<TaxResult | null>(null)
   const [deemedDisposals, setDeemedDisposals] = useState<any[]>([])
@@ -45,16 +46,18 @@ export default function Dashboard() {
   async function loadData() {
     try {
       setLoading(true)
-      const [summaryData, holdingsData, incomeData, disposals] = await Promise.all([
+      const [summaryData, holdingsData, incomeData, disposals, salesData] = await Promise.all([
         getPortfolioSummary(),
         getHoldings(selectedPersonId),
         getIncomeEvents({ limit: 100, person_id: selectedPersonId }),
         getDeemedDisposals(2, selectedPersonId), // Get disposals within next 2 years
+        getRecentSales(28, selectedPersonId).catch(() => []), // Get sales in last 4 weeks
       ])
       setSummary(summaryData)
       setHoldings(holdingsData)
       setIncomeEvents(incomeData)
       setDeemedDisposals(disposals)
+      setRecentSales(salesData)
 
       // Calculate tax for 2024
       try {
@@ -450,6 +453,64 @@ export default function Dashboard() {
                   </a>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Bed & Breakfast Rule Warning */}
+          {recentSales.filter(s => s.bed_breakfast_applies && s.sales.some(sale => sale.days_remaining > 0)).length > 0 && (
+            <div className="card" style={{ marginTop: '24px', borderLeft: '4px solid var(--error)' }}>
+              <h2 className="card-title">
+                <span style={{ marginRight: '8px' }}>⚠️</span>
+                Bed & Breakfast Rule Active
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
+                You recently sold assets subject to CGT. Buying them back within 4 weeks triggers the
+                bed & breakfast rule, which may reduce or eliminate loss relief.
+              </p>
+              {recentSales
+                .filter(s => s.bed_breakfast_applies && s.sales.some(sale => sale.days_remaining > 0))
+                .map((asset, i) => {
+                  const activeSale = asset.sales.find(s => s.days_remaining > 0)
+                  if (!activeSale) return null
+                  return (
+                    <div key={i} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px',
+                      background: activeSale.days_remaining <= 7 ? 'rgba(239, 68, 68, 0.1)' :
+                                 activeSale.days_remaining <= 14 ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-secondary)',
+                      borderLeft: activeSale.days_remaining <= 7 ? '4px solid var(--error)' :
+                                 activeSale.days_remaining <= 14 ? '4px solid var(--warning)' : 'none',
+                      borderRadius: '6px',
+                      marginBottom: i < recentSales.length - 1 ? '8px' : 0
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{asset.name}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {asset.isin} · Sold on {new Date(activeSale.date).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{
+                          fontWeight: 600,
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '13px',
+                          background: activeSale.days_remaining <= 7 ? 'var(--error)' :
+                                     activeSale.days_remaining <= 14 ? 'var(--warning)' : 'rgba(251, 191, 36, 0.3)',
+                          color: activeSale.days_remaining <= 14 ? 'white' : 'var(--text-primary)'
+                        }}>
+                          {activeSale.days_remaining} days left
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Safe to buy: {new Date(activeSale.safe_to_buy_date).toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
             </div>
           )}
 

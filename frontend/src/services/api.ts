@@ -469,6 +469,53 @@ export async function getLossHarvestingOpportunities(personId?: number): Promise
   return response.json()
 }
 
+// ===== Bed & Breakfast Rule (4-Week Warning) =====
+
+export interface BedBreakfastCheck {
+  has_warning: boolean
+  isin: string
+  asset_name?: string
+  message: string
+  recent_sale?: {
+    date: string
+    quantity: number
+    proceeds: number
+  }
+  bed_breakfast_end_date?: string
+  days_remaining?: number
+  safe_to_buy_date?: string
+}
+
+export interface RecentSale {
+  isin: string
+  name: string
+  is_exit_tax: boolean
+  bed_breakfast_applies: boolean
+  sales: Array<{
+    date: string
+    quantity: number
+    proceeds: number
+    days_remaining: number
+    safe_to_buy_date: string
+  }>
+}
+
+export async function checkBedBreakfastRule(isin: string, personId?: number): Promise<BedBreakfastCheck> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/bed-breakfast-check/${isin}${params}`)
+  if (!response.ok) throw new Error('Failed to check bed & breakfast rule')
+  return response.json()
+}
+
+export async function getRecentSales(days: number = 28, personId?: number): Promise<RecentSale[]> {
+  const params = new URLSearchParams()
+  params.set('days', days.toString())
+  if (personId !== undefined) params.set('person_id', personId.toString())
+  const response = await fetch(`${API_BASE}/tax/recent-sales?${params}`)
+  if (!response.ok) throw new Error('Failed to fetch recent sales')
+  return response.json()
+}
+
 // ===== Person Management (Family Tax Returns) =====
 
 export interface Person {

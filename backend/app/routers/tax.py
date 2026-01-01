@@ -649,6 +649,150 @@ async def get_loss_harvesting_opportunities(
     return opportunities
 
 
+@router.get("/bed-breakfast-check/{isin}")
+async def check_bed_breakfast_rule(
+    isin: str,
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Check if buying this asset would trigger the 4-week bed & breakfast rule.
+
+    The bed & breakfast rule (Irish CGT) prevents you from selling an asset at a loss
+    and immediately rebuying it. If you rebuy within 4 weeks, the original sale's
+    cost basis is linked to the repurchase, potentially denying loss relief.
+
+    Returns warning info if a sale of this asset occurred within the last 4 weeks.
+    """
+    from datetime import timedelta
+
+    # Get the asset
+    asset = db.query(Asset).filter(Asset.isin == isin).first()
+    if not asset:
+        return {
+            "has_warning": False,
+            "isin": isin,
+            "message": "Asset not found in portfolio"
+        }
+
+    # Check if it's an Exit Tax asset (rule doesn't apply to Exit Tax)
+    is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(asset.isin, asset.name)
+    if is_exit_tax:
+        return {
+            "has_warning": False,
+            "isin": isin,
+            "asset_name": asset.name,
+            "message": "Bed & breakfast rule does not apply to Exit Tax assets"
+        }
+
+    # Find sales within the last 4 weeks (28 days)
+    four_weeks_ago = date.today() - timedelta(days=28)
+
+    sell_query = db.query(Transaction).filter(
+        Transaction.asset_id == asset.id,
+        Transaction.transaction_type == TransactionType.SELL,
+        Transaction.transaction_date >= four_weeks_ago
+    )
+
+    if person_id is not None:
+        sell_query = sell_query.filter(Transaction.person_id == person_id)
+
+    recent_sales = sell_query.order_by(Transaction.transaction_date.desc()).all()
+
+    if not recent_sales:
+        return {
+            "has_warning": False,
+            "isin": isin,
+            "asset_name": asset.name,
+            "message": "No recent sales - safe to buy"
+        }
+
+    # Calculate days remaining in bed & breakfast period
+    most_recent_sale = recent_sales[0]
+    sale_date = most_recent_sale.transaction_date
+    end_of_period = sale_date + timedelta(days=28)
+    days_remaining = (end_of_period - date.today()).days
+
+    # Calculate the loss that might be affected
+    qty_sold = sum(abs(s.quantity) for s in recent_sales)
+    total_proceeds = sum(s.gross_amount - s.fees for s in recent_sales)
+
+    return {
+        "has_warning": True,
+        "isin": isin,
+        "asset_name": asset.name,
+        "recent_sale": {
+            "date": sale_date.isoformat(),
+            "quantity": float(abs(most_recent_sale.quantity)),
+            "proceeds": float(most_recent_sale.gross_amount - most_recent_sale.fees)
+        },
+        "bed_breakfast_end_date": end_of_period.isoformat(),
+        "days_remaining": days_remaining,
+        "total_recent_sales": {
+            "count": len(recent_sales),
+            "total_quantity": float(qty_sold),
+            "total_proceeds": float(total_proceeds)
+        },
+        "message": f"Warning: You sold this asset on {sale_date.strftime('%d %b %Y')}. "
+                   f"Buying within 4 weeks ({days_remaining} days remaining) triggers the "
+                   f"bed & breakfast rule, which may affect your CGT loss relief.",
+        "safe_to_buy_date": end_of_period.isoformat()
+    }
+
+
+@router.get("/recent-sales")
+async def get_recent_sales(
+    days: int = Query(28, description="Number of days to look back"),
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
+    db: Session = Depends(get_db)
+) -> list[dict]:
+    """
+    Get all assets sold within the last N days (default 28 = 4 weeks).
+    Useful for bed & breakfast rule warnings.
+    """
+    from datetime import timedelta
+
+    cutoff_date = date.today() - timedelta(days=days)
+
+    query = db.query(Transaction).join(Asset).filter(
+        Transaction.transaction_type == TransactionType.SELL,
+        Transaction.transaction_date >= cutoff_date
+    )
+
+    if person_id is not None:
+        query = query.filter(Transaction.person_id == person_id)
+
+    recent_sales = query.order_by(Transaction.transaction_date.desc()).all()
+
+    # Group by ISIN
+    sales_by_isin = {}
+    for sale in recent_sales:
+        isin = sale.asset.isin
+        if isin not in sales_by_isin:
+            is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(sale.asset.isin, sale.asset.name)
+            sales_by_isin[isin] = {
+                "isin": isin,
+                "name": sale.asset.name,
+                "is_exit_tax": is_exit_tax,
+                "sales": [],
+                "bed_breakfast_applies": not is_exit_tax
+            }
+
+        sale_date = sale.transaction_date
+        end_of_period = sale_date + timedelta(days=28)
+        days_remaining = max(0, (end_of_period - date.today()).days)
+
+        sales_by_isin[isin]["sales"].append({
+            "date": sale_date.isoformat(),
+            "quantity": float(abs(sale.quantity)),
+            "proceeds": float(sale.gross_amount - sale.fees),
+            "days_remaining": days_remaining,
+            "safe_to_buy_date": end_of_period.isoformat()
+        })
+
+    return list(sales_by_isin.values())
+
+
 @router.get("/available-years")
 async def get_available_years(
     person_id: Optional[int] = Query(None, description="Person ID for family mode"),
