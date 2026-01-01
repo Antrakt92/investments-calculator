@@ -131,14 +131,14 @@
 
 ---
 
-## Phase 4: Tax Optimization ✅ PARTIAL
+## Phase 4: Tax Optimization ✅ DONE
 
-### 4.1 Tax Planning Tools
+### 4.1 Tax Planning Tools ✅ DONE
 - [x] "What-if" scenarios (sell X shares = Y tax) - `/tax/what-if/{isin}` endpoint
 - [x] Loss harvesting suggestions - `/tax/loss-harvesting` endpoint
 - [x] What-if scenario UI component - `/planning` page
 - [x] Loss harvesting UI component - `/planning` page
-- [ ] Tax-efficient selling order recommendations
+- [x] Tax-efficient selling recommendations - `/tax/selling-recommendations/{isin}` endpoint + "Selling Guide" tab
 
 ### 4.2 Alerts & Notifications ✅ DONE
 - [x] Payment deadline reminders with urgency (days countdown, color-coded)
@@ -265,5 +265,5 @@
 13. ~~**Next**: JSON backup/restore~~ ✅ Done
 14. ~~**Next**: Tooltips/help text~~ ✅ Done
 15. ~~**Next**: Mobile responsive design~~ ✅ Done
-16. **Next**: Tax-efficient selling recommendations
+16. ~~**Next**: Tax-efficient selling recommendations~~ ✅ Done
 17. **Future**: Year comparison, portfolio analytics
