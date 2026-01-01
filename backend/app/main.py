@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .models import init_db
-from .routers import upload_router, portfolio_router, tax_router
+from .routers import upload_router, portfolio_router, tax_router, persons_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -37,6 +37,7 @@ app.add_middleware(
 app.include_router(upload_router)
 app.include_router(portfolio_router)
 app.include_router(tax_router)
+app.include_router(persons_router)
 
 
 @app.on_event("startup")
@@ -62,6 +63,11 @@ async def root():
             "tax": {
                 "calculate": "/tax/calculate/{tax_year}",
                 "deemed_disposals": "/tax/deemed-disposals"
+            },
+            "persons": {
+                "list": "/persons/",
+                "create": "/persons/",
+                "primary": "/persons/primary/default"
             }
         },
         "tax_rates": {

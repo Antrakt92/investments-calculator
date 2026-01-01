@@ -1,5 +1,6 @@
 from .database import Base, engine, get_db, init_db
 from .entities import (
+    Person,
     Transaction,
     Holding,
     TaxLot,
@@ -15,6 +16,7 @@ __all__ = [
     "engine",
     "get_db",
     "init_db",
+    "Person",
     "Transaction",
     "Holding",
     "TaxLot",

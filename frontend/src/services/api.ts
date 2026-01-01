@@ -341,3 +341,92 @@ export async function getLossesCarryForward(fromYear: number): Promise<LossesCar
   if (!response.ok) throw new Error('Failed to fetch losses')
   return response.json()
 }
+
+// ===== Person Management (Family Tax Returns) =====
+
+export interface Person {
+  id: number
+  name: string
+  is_primary: boolean
+  pps_number: string | null
+  color: string
+}
+
+export interface PersonCreate {
+  name: string
+  is_primary?: boolean
+  pps_number?: string
+  color?: string
+}
+
+export interface PersonUpdate {
+  name?: string
+  pps_number?: string
+  color?: string
+}
+
+export async function getPersons(): Promise<Person[]> {
+  const response = await fetch(`${API_BASE}/persons/`)
+  if (!response.ok) throw new Error('Failed to fetch persons')
+  return response.json()
+}
+
+export async function getPerson(id: number): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/${id}`)
+  if (!response.ok) throw new Error('Failed to fetch person')
+  return response.json()
+}
+
+export async function createPerson(data: PersonCreate): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to create person')
+  }
+  return response.json()
+}
+
+export async function updatePerson(id: number, data: PersonUpdate): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to update person')
+  }
+  return response.json()
+}
+
+export async function deletePerson(id: number): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/persons/${id}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to delete person')
+  }
+  return response.json()
+}
+
+export async function setPrimaryPerson(id: number): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/${id}/set-primary`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to set primary person')
+  }
+  return response.json()
+}
+
+export async function getOrCreatePrimaryPerson(): Promise<Person> {
+  const response = await fetch(`${API_BASE}/persons/primary/default`)
+  if (!response.ok) throw new Error('Failed to get primary person')
+  return response.json()
+}

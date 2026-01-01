@@ -34,6 +34,27 @@ class TransactionType(str, Enum):
     TRANSFER_OUT = "transfer_out"
 
 
+class Person(Base):
+    """Person entity for family/joint tax returns."""
+    __tablename__ = "persons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    is_primary = Column(Boolean, default=False)  # Primary taxpayer vs spouse
+    pps_number = Column(String(20))  # Optional PPS number
+    color = Column(String(7), default="#3B82F6")  # UI color for distinction
+
+    # Relationships
+    transactions = relationship("Transaction", back_populates="person")
+    tax_lots = relationship("TaxLot", back_populates="person")
+    holdings = relationship("Holding", back_populates="person")
+    income_events = relationship("IncomeEvent", back_populates="person")
+    tax_reports = relationship("TaxReport", back_populates="person")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Asset(Base):
     """Asset master data."""
     __tablename__ = "assets"
@@ -63,6 +84,7 @@ class Transaction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    person_id = Column(Integer, ForeignKey("persons.id"), nullable=True)  # For family tax returns
 
     transaction_type = Column(SQLEnum(TransactionType), nullable=False)
     transaction_date = Column(Date, nullable=False, index=True)
@@ -90,6 +112,7 @@ class Transaction(Base):
 
     # Relationships
     asset = relationship("Asset", back_populates="transactions")
+    person = relationship("Person", back_populates="transactions")
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -106,6 +129,7 @@ class TaxLot(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    person_id = Column(Integer, ForeignKey("persons.id"), nullable=True)  # For family tax returns
 
     acquisition_date = Column(Date, nullable=False, index=True)
     quantity = Column(Numeric(18, 8), nullable=False)
@@ -121,17 +145,19 @@ class TaxLot(Base):
     buy_transaction_id = Column(Integer, ForeignKey("transactions.id"))
 
     asset = relationship("Asset", back_populates="tax_lots")
+    person = relationship("Person", back_populates="tax_lots")
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Holding(Base):
-    """Current holdings summary per asset."""
+    """Current holdings summary per asset per person."""
     __tablename__ = "holdings"
 
     id = Column(Integer, primary_key=True, index=True)
-    asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False, unique=True)
+    asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    person_id = Column(Integer, ForeignKey("persons.id"), nullable=True)  # For family tax returns
 
     quantity = Column(Numeric(18, 8), nullable=False, default=0)
     average_cost = Column(Numeric(18, 6))
@@ -147,6 +173,7 @@ class Holding(Base):
     next_deemed_disposal_date = Column(Date)
 
     asset = relationship("Asset", back_populates="holdings")
+    person = relationship("Person", back_populates="holdings")
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -157,6 +184,7 @@ class IncomeEvent(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"))
+    person_id = Column(Integer, ForeignKey("persons.id"), nullable=True)  # For family tax returns
 
     income_type = Column(String(50), nullable=False)  # interest, dividend, distribution
     payment_date = Column(Date, nullable=False, index=True)
@@ -172,6 +200,9 @@ class IncomeEvent(Base):
     # Source info
     source_country = Column(String(100))
 
+    # Relationships
+    person = relationship("Person", back_populates="income_events")
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -181,6 +212,7 @@ class TaxReport(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tax_year = Column(Integer, nullable=False, index=True)
+    person_id = Column(Integer, ForeignKey("persons.id"), nullable=True)  # For family tax returns
 
     # CGT Summary
     cgt_gains = Column(Numeric(18, 2), default=0)
@@ -214,6 +246,9 @@ class TaxReport(Base):
     # Payment periods (Irish CGT split)
     jan_nov_gains = Column(Numeric(18, 2), default=0)  # Due Dec 15
     dec_gains = Column(Numeric(18, 2), default=0)       # Due Jan 31
+
+    # Relationships
+    person = relationship("Person", back_populates="tax_reports")
 
     generated_at = Column(DateTime, default=datetime.utcnow)
     report_data = Column(Text)  # JSON with detailed breakdown
