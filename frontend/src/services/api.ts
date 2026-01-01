@@ -539,6 +539,69 @@ export async function getLossHarvestingOpportunities(personId?: number): Promise
   return response.json()
 }
 
+// ===== Tax-Efficient Selling Recommendations =====
+
+export interface SellingRecommendation {
+  type: 'info' | 'warning'
+  title: string
+  message: string
+}
+
+export interface LotDetail {
+  lot_number: number
+  acquisition_date: string
+  quantity: number
+  unit_cost: number
+  total_cost: number
+  days_held: number
+  fifo_priority: number
+}
+
+export interface StrategyOrder {
+  acquisition_date: string
+  quantity: number
+  unit_cost: number
+}
+
+export interface SellingStrategy {
+  name: string
+  description: string
+  order: StrategyOrder[]
+  is_default: boolean
+  note: string
+}
+
+export interface SellingRecommendations {
+  isin: string
+  asset_name: string
+  tax_type: string
+  tax_rate: string
+  total_quantity: number
+  total_cost_basis: number
+  average_cost: number
+  lots: LotDetail[]
+  strategies: {
+    fifo: SellingStrategy
+    highest_cost_first: SellingStrategy
+    lowest_cost_first: SellingStrategy
+  }
+  recommendations: SellingRecommendation[]
+  note: string
+}
+
+export async function getSellingRecommendations(
+  isin: string,
+  personId?: number
+): Promise<SellingRecommendations> {
+  const params = personId !== undefined ? `?person_id=${personId}` : ''
+  const response = await fetch(`${API_BASE}/tax/selling-recommendations/${isin}${params}`)
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to fetch selling recommendations')
+  }
+  return response.json()
+}
+
 // ===== Bed & Breakfast Rule (4-Week Warning) =====
 
 export interface BedBreakfastCheck {

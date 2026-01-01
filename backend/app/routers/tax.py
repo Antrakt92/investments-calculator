@@ -896,6 +896,254 @@ async def get_deemed_disposals(
     ]
 
 
+@router.get("/selling-recommendations/{isin}")
+async def get_selling_recommendations(
+    isin: str,
+    target_amount: Optional[Decimal] = Query(None, description="Target sale proceeds amount"),
+    person_id: Optional[int] = Query(None, description="Person ID for family mode"),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Get tax-efficient selling recommendations for a specific asset.
+
+    Analyzes all lots (purchase tranches) and recommends which to sell first
+    based on different tax optimization strategies:
+    - Loss harvesting: Sell lots with unrealized losses first
+    - Tax minimization: Sell highest cost basis lots first (minimizes gains)
+    - FIFO (default): First-in, first-out (standard Irish tax rule)
+
+    If target_amount is provided, shows which lots would be used to reach
+    that sale amount and the estimated tax for each strategy.
+    """
+    # Get the asset
+    asset = db.query(Asset).filter(Asset.isin == isin).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"Asset {isin} not found")
+
+    # Determine tax type
+    is_exit_tax = ExitTaxCalculator.is_exit_tax_asset(asset.isin, asset.name)
+    tax_type = "Exit Tax" if is_exit_tax else "CGT"
+    tax_rate = Decimal("0.41") if is_exit_tax else Decimal("0.33")
+    annual_exemption = Decimal("0") if is_exit_tax else Decimal("1270")
+
+    # Get all buy transactions
+    buy_query = db.query(Transaction).filter(
+        Transaction.asset_id == asset.id,
+        Transaction.transaction_type == TransactionType.BUY
+    )
+    if person_id is not None:
+        buy_query = buy_query.filter(Transaction.person_id == person_id)
+    buys = buy_query.order_by(Transaction.transaction_date).all()
+
+    # Get all sell transactions
+    sell_query = db.query(Transaction).filter(
+        Transaction.asset_id == asset.id,
+        Transaction.transaction_type == TransactionType.SELL
+    )
+    if person_id is not None:
+        sell_query = sell_query.filter(Transaction.person_id == person_id)
+    sells = sell_query.order_by(Transaction.transaction_date).all()
+
+    # Build remaining lots using FIFO
+    lots = []
+    for buy in buys:
+        qty = abs(buy.quantity)
+        total_cost_with_fees = buy.gross_amount + buy.fees
+        unit_cost = total_cost_with_fees / qty if qty > 0 else Decimal("0")
+        lots.append({
+            "acquisition_date": buy.transaction_date,
+            "original_quantity": float(qty),
+            "remaining": qty,
+            "unit_cost": unit_cost,
+            "total_cost": total_cost_with_fees,
+            "days_held": (date.today() - buy.transaction_date).days
+        })
+
+    # Apply existing sells using FIFO
+    for sell in sells:
+        qty_to_match = abs(sell.quantity)
+        for lot in lots:
+            if qty_to_match <= 0:
+                break
+            if lot["remaining"] > 0:
+                matched = min(qty_to_match, lot["remaining"])
+                lot["remaining"] -= matched
+                qty_to_match -= matched
+
+    # Filter to lots with remaining quantity
+    remaining_lots = [lot for lot in lots if lot["remaining"] > 0]
+
+    if not remaining_lots:
+        return {
+            "isin": isin,
+            "asset_name": asset.name,
+            "tax_type": tax_type,
+            "total_quantity": 0,
+            "lots": [],
+            "strategies": {},
+            "message": "No remaining lots to sell"
+        }
+
+    # Calculate total remaining
+    total_remaining = sum(lot["remaining"] for lot in remaining_lots)
+    total_cost_basis = sum(lot["remaining"] * lot["unit_cost"] for lot in remaining_lots)
+    avg_cost = total_cost_basis / total_remaining if total_remaining > 0 else Decimal("0")
+
+    # Format lot details with recommendations
+    lot_details = []
+    for i, lot in enumerate(remaining_lots):
+        lot_details.append({
+            "lot_number": i + 1,
+            "acquisition_date": lot["acquisition_date"].isoformat(),
+            "quantity": float(lot["remaining"]),
+            "unit_cost": float(lot["unit_cost"]),
+            "total_cost": float(lot["remaining"] * lot["unit_cost"]),
+            "days_held": lot["days_held"],
+            "fifo_priority": i + 1,  # FIFO order
+        })
+
+    # Sort lots by different strategies
+    # Strategy 1: Highest cost first (minimizes taxable gain when selling at a profit)
+    highest_cost_first = sorted(
+        remaining_lots,
+        key=lambda x: x["unit_cost"],
+        reverse=True
+    )
+
+    # Strategy 2: Lowest cost first (maximizes loss harvesting potential)
+    lowest_cost_first = sorted(
+        remaining_lots,
+        key=lambda x: x["unit_cost"]
+    )
+
+    # Strategy 3: Oldest first (FIFO - default Irish tax rule)
+    fifo_order = sorted(
+        remaining_lots,
+        key=lambda x: x["acquisition_date"]
+    )
+
+    # Build strategy details
+    strategies = {
+        "fifo": {
+            "name": "FIFO (First-In, First-Out)",
+            "description": "Standard Irish tax rule - oldest shares sold first",
+            "order": [
+                {
+                    "acquisition_date": lot["acquisition_date"].isoformat(),
+                    "quantity": float(lot["remaining"]),
+                    "unit_cost": float(lot["unit_cost"])
+                }
+                for lot in fifo_order
+            ],
+            "is_default": True,
+            "note": "This is the legally required matching rule for Irish CGT"
+        },
+        "highest_cost_first": {
+            "name": "Highest Cost First",
+            "description": "Minimizes taxable gain when selling at a profit",
+            "order": [
+                {
+                    "acquisition_date": lot["acquisition_date"].isoformat(),
+                    "quantity": float(lot["remaining"]),
+                    "unit_cost": float(lot["unit_cost"])
+                }
+                for lot in highest_cost_first
+            ],
+            "is_default": False,
+            "note": "NOT allowed for Irish tax - FIFO is mandatory. For comparison only."
+        },
+        "lowest_cost_first": {
+            "name": "Lowest Cost First",
+            "description": "Maximizes loss harvesting potential",
+            "order": [
+                {
+                    "acquisition_date": lot["acquisition_date"].isoformat(),
+                    "quantity": float(lot["remaining"]),
+                    "unit_cost": float(lot["unit_cost"])
+                }
+                for lot in lowest_cost_first
+            ],
+            "is_default": False,
+            "note": "NOT allowed for Irish tax - FIFO is mandatory. For comparison only."
+        }
+    }
+
+    # Add recommendations
+    recommendations = []
+
+    # Check for loss harvesting opportunities
+    low_cost_lots = [lot for lot in remaining_lots if lot["unit_cost"] < avg_cost]
+    high_cost_lots = [lot for lot in remaining_lots if lot["unit_cost"] >= avg_cost]
+
+    if low_cost_lots and high_cost_lots:
+        cost_spread = max(lot["unit_cost"] for lot in remaining_lots) - min(lot["unit_cost"] for lot in remaining_lots)
+        if cost_spread > Decimal("1"):
+            recommendations.append({
+                "type": "info",
+                "title": "Cost Basis Variance",
+                "message": f"Your lots have a cost spread of €{float(cost_spread):.2f} per unit. "
+                          f"Under Irish FIFO rules, oldest lots are sold first regardless of cost."
+            })
+
+    # Check for long-term holdings
+    long_term_lots = [lot for lot in remaining_lots if lot["days_held"] > 365]
+    if long_term_lots:
+        recommendations.append({
+            "type": "info",
+            "title": "Long-Term Holdings",
+            "message": f"You have {len(long_term_lots)} lot(s) held over 1 year. "
+                      f"Ireland has no preferential long-term CGT rate - all gains taxed at {int(tax_rate * 100)}%."
+        })
+
+    # Bed & breakfast warning
+    from datetime import timedelta
+    four_weeks_ago = date.today() - timedelta(days=28)
+    recent_sells = db.query(Transaction).filter(
+        Transaction.asset_id == asset.id,
+        Transaction.transaction_type == TransactionType.SELL,
+        Transaction.transaction_date >= four_weeks_ago
+    )
+    if person_id is not None:
+        recent_sells = recent_sells.filter(Transaction.person_id == person_id)
+
+    if recent_sells.count() > 0 and not is_exit_tax:
+        recommendations.append({
+            "type": "warning",
+            "title": "Bed & Breakfast Warning",
+            "message": "You sold this asset within the last 4 weeks. Any repurchase will trigger "
+                      "the bed & breakfast rule, affecting your CGT calculation."
+        })
+
+    # Tax exemption reminder for CGT
+    if not is_exit_tax:
+        recommendations.append({
+            "type": "info",
+            "title": "CGT Exemption",
+            "message": f"You have a €{float(annual_exemption):,.0f} annual CGT exemption. "
+                      f"Consider timing sales across tax years to maximize exemption use."
+        })
+    else:
+        recommendations.append({
+            "type": "warning",
+            "title": "No Exit Tax Exemption",
+            "message": "Exit Tax has no annual exemption - all gains are taxed at 41%."
+        })
+
+    return {
+        "isin": isin,
+        "asset_name": asset.name,
+        "tax_type": tax_type,
+        "tax_rate": f"{int(tax_rate * 100)}%",
+        "total_quantity": float(total_remaining),
+        "total_cost_basis": float(total_cost_basis),
+        "average_cost": float(avg_cost),
+        "lots": lot_details,
+        "strategies": strategies,
+        "recommendations": recommendations,
+        "note": "Under Irish tax law, FIFO matching is mandatory. Other strategies shown for comparison only."
+    }
+
+
 @router.get("/losses-to-carry-forward/{from_year}")
 async def get_losses_to_carry_forward(
     from_year: int,

@@ -4,15 +4,17 @@ import {
   getPersons,
   calculateWhatIf,
   getLossHarvestingOpportunities,
+  getSellingRecommendations,
   type Holding,
   type Person,
   type WhatIfResult,
-  type LossHarvestingOpportunity
+  type LossHarvestingOpportunity,
+  type SellingRecommendations
 } from '../services/api'
 import { HelpIcon, TAX_TERMS } from '../components/Tooltip'
 
 export default function TaxPlanning() {
-  const [activeTab, setActiveTab] = useState<'whatif' | 'harvesting'>('whatif')
+  const [activeTab, setActiveTab] = useState<'whatif' | 'harvesting' | 'selling'>('whatif')
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +35,12 @@ export default function TaxPlanning() {
   const [opportunities, setOpportunities] = useState<LossHarvestingOpportunity[]>([])
   const [harvestingLoading, setHarvestingLoading] = useState(false)
   const [currentPrices, setCurrentPrices] = useState<Record<string, string>>({})
+
+  // Selling guide state
+  const [sellingIsin, setSellingIsin] = useState('')
+  const [sellingData, setSellingData] = useState<SellingRecommendations | null>(null)
+  const [sellingLoading, setSellingLoading] = useState(false)
+  const [sellingError, setSellingError] = useState<string | null>(null)
 
   useEffect(() => {
     loadInitialData()
@@ -83,6 +91,24 @@ export default function TaxPlanning() {
       // Ignore
     } finally {
       setHarvestingLoading(false)
+    }
+  }
+
+  async function loadSellingRecommendations(isin: string) {
+    if (!isin) {
+      setSellingData(null)
+      return
+    }
+    try {
+      setSellingLoading(true)
+      setSellingError(null)
+      const data = await getSellingRecommendations(isin, selectedPersonId)
+      setSellingData(data)
+    } catch (err) {
+      setSellingError(err instanceof Error ? err.message : 'Failed to load recommendations')
+      setSellingData(null)
+    } finally {
+      setSellingLoading(false)
     }
   }
 
@@ -203,6 +229,12 @@ export default function TaxPlanning() {
           }}
         >
           Loss Harvesting
+        </button>
+        <button
+          className={`tab ${activeTab === 'selling' ? 'active' : ''}`}
+          onClick={() => setActiveTab('selling')}
+        >
+          Selling Guide
         </button>
       </div>
 
@@ -565,6 +597,249 @@ export default function TaxPlanning() {
               <li><strong>Important:</strong> Wait at least 4 weeks before rebuying the same asset to avoid the "bed & breakfast" rule</li>
             </ol>
           </div>
+        </div>
+      )}
+
+      {/* Selling Guide Tab */}
+      {activeTab === 'selling' && (
+        <div className="card">
+          <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center' }}>
+            Tax-Efficient Selling Guide
+            <HelpIcon text="View your cost basis lots and understand how Irish FIFO matching rules will affect your tax when selling. Shows which lots will be matched first." />
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
+            Analyze your holdings to understand cost basis and tax implications of selling.
+          </p>
+
+          {holdings.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)' }}>
+              No holdings found. Upload transactions first.
+            </p>
+          ) : (
+            <>
+              {/* Asset Selector */}
+              <div className="form-group" style={{ maxWidth: '400px' }}>
+                <label className="form-label">Select Asset</label>
+                <select
+                  className="form-input"
+                  value={sellingIsin}
+                  onChange={(e) => {
+                    setSellingIsin(e.target.value)
+                    loadSellingRecommendations(e.target.value)
+                  }}
+                >
+                  <option value="">-- Select an asset --</option>
+                  {holdings.map(h => (
+                    <option key={h.isin} value={h.isin}>
+                      {h.name} ({h.quantity.toFixed(4)} units)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {sellingLoading && (
+                <p style={{ color: 'var(--text-secondary)' }}>Loading...</p>
+              )}
+
+              {sellingError && (
+                <div className="alert alert-error" style={{ marginTop: '16px' }}>
+                  {sellingError}
+                </div>
+              )}
+
+              {sellingData && (
+                <div style={{ marginTop: '24px' }}>
+                  {/* Summary */}
+                  <div style={{
+                    display: 'grid',
+                    gap: '16px',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    marginBottom: '24px'
+                  }}>
+                    <div style={{ padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
+                        Total Quantity
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: 600 }}>
+                        {sellingData.total_quantity.toFixed(4)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
+                        Total Cost Basis
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: 600 }}>
+                        {formatCurrency(sellingData.total_cost_basis)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
+                        Avg Cost/Unit
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: 600 }}>
+                        {formatCurrency(sellingData.average_cost)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
+                        Tax Type
+                      </div>
+                      <div style={{
+                        fontSize: '20px',
+                        fontWeight: 600,
+                        color: sellingData.tax_type === 'Exit Tax' ? 'var(--warning)' : 'var(--primary)'
+                      }}>
+                        {sellingData.tax_type} ({sellingData.tax_rate})
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recommendations */}
+                  {sellingData.recommendations.length > 0 && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h3 style={{ marginBottom: '12px' }}>Recommendations</h3>
+                      {sellingData.recommendations.map((rec, idx) => (
+                        <div
+                          key={idx}
+                          className={`alert ${rec.type === 'warning' ? 'alert-warning' : 'alert-info'}`}
+                          style={{ marginBottom: '8px' }}
+                        >
+                          <strong>{rec.title}:</strong> {rec.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Lot Details */}
+                  <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center' }}>
+                    Cost Basis Lots (FIFO Order)
+                    <HelpIcon text={TAX_TERMS.FIFO} />
+                  </h3>
+                  <div className="table-responsive">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Acquisition Date</th>
+                          <th style={{ textAlign: 'right' }}>Quantity</th>
+                          <th style={{ textAlign: 'right' }}>Unit Cost</th>
+                          <th style={{ textAlign: 'right' }}>Total Cost</th>
+                          <th style={{ textAlign: 'right' }}>Days Held</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sellingData.lots.map(lot => (
+                          <tr key={lot.lot_number}>
+                            <td>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '50%',
+                                background: 'var(--primary)',
+                                color: 'white',
+                                fontSize: '12px',
+                                fontWeight: 600
+                              }}>
+                                {lot.fifo_priority}
+                              </span>
+                            </td>
+                            <td>{new Date(lot.acquisition_date).toLocaleDateString()}</td>
+                            <td style={{ textAlign: 'right' }}>{lot.quantity.toFixed(4)}</td>
+                            <td style={{ textAlign: 'right' }}>{formatCurrency(lot.unit_cost)}</td>
+                            <td style={{ textAlign: 'right' }}>{formatCurrency(lot.total_cost)}</td>
+                            <td style={{ textAlign: 'right' }}>
+                              {lot.days_held > 365
+                                ? `${Math.floor(lot.days_held / 365)}y ${lot.days_held % 365}d`
+                                : `${lot.days_held}d`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Note about FIFO */}
+                  <div style={{
+                    marginTop: '24px',
+                    padding: '16px',
+                    background: 'rgba(251, 191, 36, 0.1)',
+                    borderRadius: '8px',
+                    fontSize: '14px'
+                  }}>
+                    <strong>Important:</strong> {sellingData.note}
+                  </div>
+
+                  {/* Strategy Comparison */}
+                  <div style={{ marginTop: '24px' }}>
+                    <h3 style={{ marginBottom: '12px' }}>Matching Strategy Comparison</h3>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
+                      Irish tax law mandates FIFO matching. Other strategies shown for educational comparison only.
+                    </p>
+                    <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
+                      {/* FIFO Strategy */}
+                      <div style={{
+                        padding: '16px',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: '8px',
+                        borderLeft: '4px solid var(--success)'
+                      }}>
+                        <div style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--success)' }}>
+                          ✓ {sellingData.strategies.fifo.name}
+                        </div>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          {sellingData.strategies.fifo.description}
+                        </p>
+                        <p style={{ fontSize: '12px', color: 'var(--success)' }}>
+                          {sellingData.strategies.fifo.note}
+                        </p>
+                      </div>
+
+                      {/* Highest Cost First */}
+                      <div style={{
+                        padding: '16px',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: '8px',
+                        borderLeft: '4px solid var(--text-secondary)',
+                        opacity: 0.7
+                      }}>
+                        <div style={{ fontWeight: 600, marginBottom: '8px' }}>
+                          {sellingData.strategies.highest_cost_first.name}
+                        </div>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          {sellingData.strategies.highest_cost_first.description}
+                        </p>
+                        <p style={{ fontSize: '12px', color: 'var(--warning)' }}>
+                          ⚠️ {sellingData.strategies.highest_cost_first.note}
+                        </p>
+                      </div>
+
+                      {/* Lowest Cost First */}
+                      <div style={{
+                        padding: '16px',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: '8px',
+                        borderLeft: '4px solid var(--text-secondary)',
+                        opacity: 0.7
+                      }}>
+                        <div style={{ fontWeight: 600, marginBottom: '8px' }}>
+                          {sellingData.strategies.lowest_cost_first.name}
+                        </div>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          {sellingData.strategies.lowest_cost_first.description}
+                        </p>
+                        <p style={{ fontSize: '12px', color: 'var(--warning)' }}>
+                          ⚠️ {sellingData.strategies.lowest_cost_first.note}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
