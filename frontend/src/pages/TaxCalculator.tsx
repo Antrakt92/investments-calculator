@@ -6,7 +6,7 @@ export default function TaxCalculator() {
   // Dynamic year selection
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const [taxYear, setTaxYear] = useState(new Date().getFullYear() - 1) // Default to last year
-  const [hasTransactionData, setHasTransactionData] = useState(false)
+  const [_hasTransactionData, setHasTransactionData] = useState(false)
   const [lossesCarriedForward, setLossesCarriedForward] = useState(0)
   const [lossesAutoLoaded, setLossesAutoLoaded] = useState(false)
   const [result, setResult] = useState<TaxResult | null>(null)
