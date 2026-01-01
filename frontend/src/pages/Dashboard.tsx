@@ -292,7 +292,7 @@ export default function Dashboard() {
           </div>
 
           {/* Portfolio & Income Summary */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>
+          <div className="grid-2-cols" style={{ marginTop: '24px' }}>
             <div className="card">
               <h2 className="card-title">Portfolio Summary</h2>
               <table className="table">
