@@ -258,6 +258,87 @@ export default function Upload() {
               </div>
             </div>
 
+            {/* Validation Warnings */}
+            {result.validation && (result.validation.warning_count > 0 || result.validation.skipped_no_isin > 0 || result.validation.parsing_errors > 0) && (
+              <div style={{ marginTop: '24px' }}>
+                <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: 'var(--warning)' }}>⚠️</span>
+                  Parsing Notes
+                </h3>
+                <div className="card" style={{ borderLeft: '4px solid var(--warning)', background: 'var(--bg-secondary)' }}>
+                  {/* Summary stats */}
+                  <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                    {result.validation.skipped_no_isin > 0 && (
+                      <div>
+                        <span style={{ color: 'var(--warning)', fontWeight: 500 }}>
+                          {result.validation.skipped_no_isin}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                          skipped (no ISIN)
+                        </span>
+                      </div>
+                    )}
+                    {result.validation.skipped_invalid_format > 0 && (
+                      <div>
+                        <span style={{ color: 'var(--warning)', fontWeight: 500 }}>
+                          {result.validation.skipped_invalid_format}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                          skipped (invalid format)
+                        </span>
+                      </div>
+                    )}
+                    {result.validation.parsing_errors > 0 && (
+                      <div>
+                        <span style={{ color: 'var(--danger)', fontWeight: 500 }}>
+                          {result.validation.parsing_errors}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                          parsing errors
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Warning details */}
+                  {result.validation.warnings.length > 0 && (
+                    <div>
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 500, marginBottom: '12px' }}>
+                          Show {result.validation.warnings.length} warning details
+                        </summary>
+                        <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '13px' }}>
+                          {result.validation.warnings.map((w, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '8px',
+                                background: 'var(--bg-primary)',
+                                borderRadius: '4px',
+                                marginBottom: '4px',
+                                borderLeft: `3px solid ${w.severity === 'error' ? 'var(--danger)' : 'var(--warning)'}`
+                              }}
+                            >
+                              <div style={{ fontWeight: 500 }}>{w.message}</div>
+                              {w.line && (
+                                <div style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '11px', marginTop: '4px' }}>
+                                  {w.line}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  )}
+
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '12px' }}>
+                    These items could not be parsed. This is usually normal for Section VI data (gains/losses summary).
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
               <a href="/portfolio" className="btn btn-primary">
                 View Portfolio

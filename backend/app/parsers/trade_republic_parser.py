@@ -67,6 +67,16 @@ class ParsedGainLoss:
 
 
 @dataclass
+class ParsedWarning:
+    """Validation warning or issue found during parsing."""
+    warning_type: str  # missing_isin, invalid_format, unusual_value, date_issue, etc.
+    severity: str  # info, warning, error
+    message: str
+    line_content: Optional[str] = None  # Original line that caused the warning
+    details: Optional[dict] = None  # Additional context
+
+
+@dataclass
 class ParsedReport:
     """Complete parsed Trade Republic tax report."""
     client_id: str
@@ -79,10 +89,16 @@ class ParsedReport:
     transactions: list[ParsedTransaction] = field(default_factory=list)
     income_events: list[ParsedIncome] = field(default_factory=list)
     gains_losses: list[ParsedGainLoss] = field(default_factory=list)
+    warnings: list[ParsedWarning] = field(default_factory=list)
 
     total_income: Decimal = Decimal("0")
     total_gains: Decimal = Decimal("0")
     total_losses: Decimal = Decimal("0")
+
+    # Validation statistics
+    skipped_no_isin: int = 0
+    skipped_invalid_format: int = 0
+    parsing_errors: int = 0
 
 
 class TradeRepublicParser:
@@ -161,10 +177,12 @@ class TradeRepublicParser:
 
                 # Check for transaction row
                 if any(kw in row_text for kw in ["Trading Buy", "Trading Sell", "Buy ", "Sell ", "Kauf ", "Verkauf "]):
-                    trans = self._parse_transaction_row(row_text, current_isin, current_name)
-                    if trans and trans.market_value > Decimal("0"):
+                    trans, warning = self._parse_transaction_row(row_text, current_isin, current_name)
+                    if trans and trans.market_value > Decimal("0") and trans.isin:
                         report.transactions.append(trans)
                         transactions_added += 1
+                    elif warning:
+                        report.warnings.append(warning)
 
         return transactions_added
 
@@ -407,18 +425,43 @@ class TradeRepublicParser:
             )
 
             if is_trade_line:
-                trans = self._parse_transaction_row(line, self.current_isin, self.current_name)
+                trans, warning = self._parse_transaction_row(line, self.current_isin, self.current_name)
                 if trans and trans.market_value > Decimal("0"):
-                    report.transactions.append(trans)
+                    # Check if ISIN is missing
+                    if not trans.isin:
+                        report.skipped_no_isin += 1
+                        report.warnings.append(ParsedWarning(
+                            warning_type="missing_isin",
+                            severity="warning",
+                            message=f"Transaction skipped - no ISIN found",
+                            line_content=line[:100],
+                            details={"name": trans.name, "date": str(trans.transaction_date)}
+                        ))
+                    else:
+                        report.transactions.append(trans)
                 elif trans:
-                    print(f"Skipping transaction with zero market value: {line}")
+                    report.skipped_invalid_format += 1
+                    report.warnings.append(ParsedWarning(
+                        warning_type="zero_value",
+                        severity="warning",
+                        message=f"Transaction skipped - zero or negative market value",
+                        line_content=line[:100]
+                    ))
+                elif warning:
+                    report.warnings.append(warning)
+                    if warning.warning_type == "section_vi_format":
+                        pass  # Don't count as error - expected behavior
+                    else:
+                        report.parsing_errors += 1
 
-    def _parse_transaction_row(self, line: str, isin: str, name: str) -> Optional[ParsedTransaction]:
+    def _parse_transaction_row(self, line: str, isin: str, name: str) -> tuple[Optional[ParsedTransaction], Optional[ParsedWarning]]:
         """Parse a single transaction row from Section VII (History of Transactions).
 
         IMPORTANT: Section VII has TWO dates (transaction + settlement), while
         Section VI (Gains/Losses) has only ONE date. We MUST require two dates
         to avoid parsing Section VI data which has a completely different format.
+
+        Returns: (transaction, warning) - transaction is None if parsing fails
         """
         try:
             # Determine transaction type - handle German variants too
@@ -430,8 +473,13 @@ class TradeRepublicParser:
             # CRITICAL: Section VII MUST have exactly 2 dates (transaction date + settlement date)
             # Section VI only has 1 date - we skip those to avoid parsing wrong data
             if len(dates) < 2:
-                # This is likely Section VI format - skip it
-                return None
+                # This is likely Section VI format - not an error, just different section
+                return None, ParsedWarning(
+                    warning_type="section_vi_format",
+                    severity="info",
+                    message="Line appears to be Section VI (gains/losses), not Section VII (transactions)",
+                    line_content=line[:80]
+                )
 
             trans_date = datetime.strptime(dates[0], "%d.%m.%Y").date()
             settle_date = datetime.strptime(dates[1], "%d.%m.%Y").date()
@@ -477,8 +525,13 @@ class TradeRepublicParser:
                 numbers = [n for n in numbers if n and n != "-" and n != "." and len(n) > 0]
 
                 if len(numbers) < 3:
-                    print(f"Could not parse Section VII transaction - not enough numbers: {line}")
-                    return None
+                    return None, ParsedWarning(
+                        warning_type="parse_error",
+                        severity="warning",
+                        message="Could not parse transaction - not enough numbers found",
+                        line_content=line[:80],
+                        details={"numbers_found": len(numbers)}
+                    )
 
                 try:
                     currency = "EUR"
@@ -488,13 +541,17 @@ class TradeRepublicParser:
                     market_value = abs(Decimal(numbers[2]))
                     net_amount = abs(Decimal(numbers[3])) if len(numbers) > 3 else market_value
                 except (IndexError, InvalidOperation) as e:
-                    print(f"Error parsing numbers from transaction: {line} - {e}")
-                    return None
+                    return None, ParsedWarning(
+                        warning_type="parse_error",
+                        severity="warning",
+                        message=f"Error parsing numbers: {str(e)}",
+                        line_content=line[:80]
+                    )
 
             # Validate: market_value should be reasonable (not 0, not exchange rate)
             if market_value <= Decimal("0"):
-                print(f"Skipping transaction with zero/negative market value: {line}")
-                return None
+                # Return transaction anyway so caller can log proper warning with details
+                pass
 
             return ParsedTransaction(
                 isin=isin or "",
@@ -509,11 +566,15 @@ class TradeRepublicParser:
                 net_amount=abs(net_amount),
                 country=None,
                 asset_type=None
-            )
+            ), None
 
         except Exception as e:
-            print(f"Error parsing transaction: {line} - {e}")
-            return None
+            return None, ParsedWarning(
+                warning_type="parse_error",
+                severity="error",
+                message=f"Unexpected error: {str(e)}",
+                line_content=line[:80]
+            )
 
     def _classify_assets(self, report: ParsedReport):
         """Classify assets for Irish tax purposes."""

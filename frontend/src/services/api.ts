@@ -1,5 +1,13 @@
 const API_BASE = '/api'
 
+export interface ValidationWarning {
+  type: string
+  severity: 'info' | 'warning' | 'error'
+  message: string
+  line: string | null
+  details: Record<string, unknown> | null
+}
+
 export interface UploadResponse {
   success: boolean
   message: string
@@ -16,6 +24,14 @@ export interface UploadResponse {
     sells: { count: number; total: number }
     interest: { count: number; total: number }
     dividends: { count: number; total: number }
+  }
+  validation?: {
+    skipped_no_isin: number
+    skipped_invalid_format: number
+    parsing_errors: number
+    warning_count: number
+    warning_summary: Record<string, number>
+    warnings: ValidationWarning[]
   }
 }
 

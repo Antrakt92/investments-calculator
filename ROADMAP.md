@@ -46,6 +46,8 @@
 ### 🔧 Recent Fixes (v0.4.1)
 - [x] Manual transactions now assigned to selected person in family mode
 - [x] CSV export respects person filter and includes Person column
+- [x] Dashboard person filtering (UX consistency with Portfolio/Tax)
+- [x] Data validation with warnings on PDF upload
 
 ---
 
@@ -58,11 +60,13 @@
 - [ ] Tests for API endpoints
 - [ ] CI/CD pipeline with test automation
 
-### 1.2 Data Validation
-- [ ] Validate parsed data against PDF totals
-- [ ] Show warnings for suspicious data (e.g., negative prices)
-- [ ] Highlight potential parsing errors
-- [ ] Allow manual corrections inline
+### 1.2 Data Validation ✅ DONE
+- [x] Track skipped transactions (missing ISIN, invalid format)
+- [x] Collect parsing warnings with details
+- [x] Show warnings on upload page with expandable details
+- [x] Report parsing errors and skipped items count
+- [ ] Validate parsed data against PDF totals (future)
+- [ ] Allow manual corrections inline (future)
 
 ### 1.3 Deemed Disposal (8-Year Rule) ✅ DONE
 - [x] Track purchase dates for all EU ETF holdings
@@ -220,8 +224,8 @@
 | Unit Tests | High | Medium | **P0** | ✅ Done |
 | Deemed Disposal Tracking | High | Medium | **P1** | ✅ Done |
 | Family/Joint Returns | High | High | **P1** | ✅ Done |
-| Data Validation | Medium | Medium | **P1** | Next |
-| Multi-Year Support | Medium | Medium | **P2** | Pending |
+| Data Validation | Medium | Medium | **P1** | ✅ Done |
+| Multi-Year Support | Medium | Medium | **P2** | Next |
 | Tax Optimization Tools | Medium | High | **P3** | Pending |
 | Multiple Brokers | High | Very High | **Backlog** | Pending |
 | Portfolio Analytics | Low | High | **Backlog** | Pending |
@@ -235,6 +239,6 @@
 3. ~~**Now**: Implement Family/Joint returns~~ ✅
 4. ~~**Now**: Fix person_id bugs in manual transactions/CSV~~ ✅
 5. ~~**Now**: Dashboard person filtering (UX consistency)~~ ✅
-6. **Now**: Data validation and error handling
-7. **Next**: Multi-year support
-8. **Later**: Tax optimization tools
+6. ~~**Now**: Data validation and error handling~~ ✅
+7. **Now**: Multi-year support (Phase 3)
+8. **Next**: Tax optimization tools

@@ -158,6 +158,27 @@ async def upload_trade_republic_pdf(
 
         db.commit()
 
+        # Compile validation warnings (exclude info-level Section VI warnings which are normal)
+        validation_warnings = [
+            {
+                "type": w.warning_type,
+                "severity": w.severity,
+                "message": w.message,
+                "line": w.line_content,
+                "details": w.details
+            }
+            for w in parsed.warnings
+            if w.severity != "info"  # Don't clutter with info messages
+        ]
+
+        # Group warnings by type for summary
+        warning_summary = {}
+        for w in validation_warnings:
+            wtype = w["type"]
+            if wtype not in warning_summary:
+                warning_summary[wtype] = 0
+            warning_summary[wtype] += 1
+
         return {
             "success": True,
             "message": f"Successfully imported {transactions_count} transactions and {income_count} income events",
@@ -186,6 +207,14 @@ async def upload_trade_republic_pdf(
                     "count": sum(1 for i in parsed.income_events if i.income_type.lower() != "interest"),
                     "total": float(total_dividends)
                 }
+            },
+            "validation": {
+                "skipped_no_isin": parsed.skipped_no_isin,
+                "skipped_invalid_format": parsed.skipped_invalid_format,
+                "parsing_errors": parsed.parsing_errors,
+                "warning_count": len(validation_warnings),
+                "warning_summary": warning_summary,
+                "warnings": validation_warnings[:20]  # Limit to first 20 warnings
             }
         }
 
